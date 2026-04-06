@@ -1,6 +1,6 @@
 import sequelize from "../config/db.js";
 
-import Item from "./Item.js";
+import Item from "./item.js";
 import Stock from "./Stock.js";
 import StockTransfer from "./stockTransfer.js";
 import StockTransferItem from "./stockTransferItem.js";
