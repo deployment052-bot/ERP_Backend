@@ -1,10 +1,12 @@
 import sequelize from "../config/db.js";
 
 import Item from "./item.js";
-import Stock from "./Stock.js";
+import Stock from "./stockrecord.js";
 import StockTransfer from "./stockTransfer.js";
 import StockTransferItem from "./stockTransferItem.js";
-import StockMovement from ".//stockmovement.js";
+import StockMovement from "./stockmovement.js";
+import StockRequest from "./StockRequest.js";
+import StockRequestItem from "./stockRequestItem.js";
 import AuditTrail from "./audittrail.js";
 import Store from "./Store.js";
 
@@ -39,9 +41,18 @@ StockTransferItem.belongsTo(Item, {
   as: "item",
 });
 
-// ================= STORE / ORGANIZATION =================
-// organization_id = Store.id
+// ⚠️ FIX: alias conflict removed
+Item.hasMany(StockRequestItem, {
+  foreignKey: "item_id",
+  as: "item_request_items",
+});
 
+StockRequestItem.belongsTo(Item, {
+  foreignKey: "item_id",
+  as: "item",
+});
+
+// ================= STORE =================
 Store.hasMany(Stock, {
   foreignKey: "organization_id",
   as: "stocks",
@@ -72,6 +83,39 @@ StockMovement.belongsTo(Store, {
   as: "organization",
 });
 
+// ================= STOCK REQUEST =================
+Store.hasMany(StockRequest, {
+  foreignKey: "from_organization_id",
+  as: "outgoing_requests",
+});
+
+Store.hasMany(StockRequest, {
+  foreignKey: "to_organization_id",
+  as: "incoming_requests",
+});
+
+StockRequest.belongsTo(Store, {
+  foreignKey: "from_organization_id",
+  as: "fromOrganization",
+});
+
+StockRequest.belongsTo(Store, {
+  foreignKey: "to_organization_id",
+  as: "toOrganization",
+});
+
+// 🔥 MAIN FIX (important)
+StockRequest.hasMany(StockRequestItem, {
+  foreignKey: "request_id",
+  as: "request_items",
+});
+
+StockRequestItem.belongsTo(StockRequest, {
+  foreignKey: "request_id",
+  as: "request",
+});
+
+// ================= TRANSFER =================
 Store.hasMany(StockTransfer, {
   foreignKey: "from_organization_id",
   as: "outgoing_transfers",
@@ -92,7 +136,6 @@ StockTransfer.belongsTo(Store, {
   as: "toOrganization",
 });
 
-// ================= TRANSFER =================
 StockTransfer.hasMany(StockTransferItem, {
   foreignKey: "transfer_id",
   as: "items",
@@ -103,6 +146,17 @@ StockTransferItem.belongsTo(StockTransfer, {
   as: "transfer",
 });
 
+// ================= REQUEST <-> TRANSFER =================
+StockRequest.hasOne(StockTransfer, {
+  foreignKey: "request_id",
+  as: "transfer",
+});
+
+StockTransfer.belongsTo(StockRequest, {
+  foreignKey: "request_id",
+  as: "request",
+});
+
 export {
   sequelize,
   Item,
@@ -110,6 +164,8 @@ export {
   StockTransfer,
   StockTransferItem,
   StockMovement,
+  StockRequest,
+  StockRequestItem,
   AuditTrail,
   Store,
 };

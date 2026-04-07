@@ -1,10 +1,12 @@
 import express from "express";
+import "./model/index.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import { Sequelize } from "sequelize";
 import authRoutes from "./routes/authRoutes.js"; // ✅ ES Module import
 import item from "./routes/itemRoutes.js";
 import dashboard from "./routes/dashboardRoutes.js";
+import requestItem from "./routes/request.js";
 dotenv.config();
 
 const app = express();
@@ -31,6 +33,7 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 app.use('/auth', authRoutes); // ✅ ES Module compatible
 app.use('/item',item)
 app.use('/dash',dashboard)
+app.use('/request',requestItem)
 // Test route
 app.get("/", (req, res) => {
   res.status(200).json({

@@ -279,7 +279,7 @@ export const getItemsByLevel = async (req, res) => {
   }
 };
 
-// 🔹 GET CHILD ITEMS
+//  GET CHILD ITEMS
 export const getChildItems = async (req, res) => {
   try {
     if (!req.user) {
@@ -367,7 +367,7 @@ export const getChildItems = async (req, res) => {
   }
 };
 
-// 🔹 GET SINGLE ITEM
+//  GET SINGLE ITEM
 export const getItemById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -443,7 +443,7 @@ export const getItemById = async (req, res) => {
   }
 };
 
-// 🔹 UPDATE ITEM
+//  UPDATE ITEM
 export const updateItem = async (req, res) => {
   try {
     const { id } = req.params;
@@ -521,7 +521,7 @@ export const updateItem = async (req, res) => {
   }
 };
 
-// 🔹 DELETE ITEM
+//  DELETE ITEM
 export const deleteItem = async (req, res) => {
   try {
     const { id } = req.params;

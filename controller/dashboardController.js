@@ -215,10 +215,10 @@ export const getDashboardSummary = async (req, res) => {
           gold_price: goldRate ? Number(goldRate.rate) : 0,
           silver_price: silverRate ? Number(silverRate.rate) : 0,
         },
-        charts: {
-          sales_trends: salesTrends,
-          sales_by_category: salesByCategory,
-        },
+        // charts: {
+        //   sales_trends: salesTrends,
+        //   sales_by_category: salesByCategory,
+        // },
         pending_tasks: pendingTasks,
         recent_activities: recentActivities,
       },
