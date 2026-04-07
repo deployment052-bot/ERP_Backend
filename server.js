@@ -32,8 +32,8 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 // Use routes
 app.use('/auth', authRoutes); // ✅ ES Module compatible
 app.use('/item',item)
-app.use('/dash',dashboard)
-app.use('/request',requestItem)
+// app.use('/dash',dashboard)
+// app.use('/request',requestItem)
 // Test route
 app.get("/", (req, res) => {
   res.status(200).json({
