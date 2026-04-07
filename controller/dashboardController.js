@@ -2,7 +2,7 @@ import { Op, fn, col, literal } from "sequelize";
 import Item from "../model/item.js";
 
 // Apne actual models ke path yaha set karna
-import StockMovement from "../model/stockMovement.js";
+import StockMovement from "../model/stockmovement.js";
 // import Invoice from "../model/invoice.js";
 import SystemActivity from "../model/systemActivity.js";
 import Task from "../model/task.js";
