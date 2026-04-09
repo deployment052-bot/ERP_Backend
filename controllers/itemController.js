@@ -1,6 +1,10 @@
 import Item from "../models/Item.js";
 
-// 🔹 ADD ITEM (ALL LEVELS)
+/**
+ * @description Add a new item
+ * @route POST /api/items
+ * @access Private
+ */
 export const addItem = async (req, res) => {
   try {
     const {
@@ -24,7 +28,7 @@ export const addItem = async (req, res) => {
 
     const { role, reference_id } = req.user;
 
-    // 🔥 Validation
+    //  Validation
     if (!article_code || !item_name || !metal_type || !category || !purity || !gross_weight || !making_charge) {
       return res.status(400).json({
         success: false,
@@ -32,7 +36,7 @@ export const addItem = async (req, res) => {
       });
     }
 
-    // 🔥 Check duplicate article_code
+    //  Check duplicate article_code
     const existingItem = await Item.findOne({
       where: { article_code },
     });
@@ -82,7 +86,7 @@ export const addItem = async (req, res) => {
 
 
 
-// 🔹 GET OWN ITEMS (ROLE BASED)
+//  GET OWN ITEMS (ROLE BASED)
 export const getItems = async (req, res) => {
   try {
     const { role, reference_id } = req.user;
@@ -90,12 +94,10 @@ export const getItems = async (req, res) => {
     let items;
 
     if (role === "CAPITAL") {
-      // 🔥 Capital sab dekh sakta hai
       items = await Item.findAll({
         order: [["createdAt", "DESC"]],
       });
     } else {
-      // 🔹 Other roles → sirf apna data
       items = await Item.findAll({
         where: { reference_id },
         order: [["createdAt", "DESC"]],
@@ -117,8 +119,11 @@ export const getItems = async (req, res) => {
 };
 
 
-
-// 🔹 GET ITEMS BY LEVEL (CAPITAL USE)
+/**
+ * @description Get items by level
+ * @route GET /api/items/levels/:level
+ * @access Private
+ */
 export const getItemsByLevel = async (req, res) => {
   try {
     const { level } = req.params;
@@ -155,7 +160,11 @@ export const getItemsByLevel = async (req, res) => {
 
 
 
-// 🔹 GET CHILD ITEMS (ERP LOGIC BASIC)
+/**
+ * @description Get child items based on user role
+ * @route GET /api/items/child
+ * @access Private
+ */
 export const getChildItems = async (req, res) => {
   try {
     const { role } = req.user;
@@ -212,7 +221,7 @@ export const getChildItems = async (req, res) => {
 
 
 
-// 🔹 GET SINGLE ITEM
+//  GET SINGLE ITEM
 export const getItemById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -241,7 +250,7 @@ export const getItemById = async (req, res) => {
 
 
 
-// 🔹 UPDATE ITEM
+//  UPDATE ITEM
 export const updateItem = async (req, res) => {
   try {
     const { id } = req.params;

@@ -9,25 +9,19 @@ const District = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
-
-    district_name: {
+    name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-
-    district_code: {
-      type: DataTypes.STRING,
-      unique: true,
-    },
-
     state_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
   },
   {
-    timestamps: true,
-    tableName: "districts",
+    tableName: "districts",   
+    freezeTableName: true,
+    timestamps: false,    
   }
 );
 

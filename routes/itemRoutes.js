@@ -6,20 +6,36 @@ import {
   getChildItems,
 } from "../controllers/itemController.js";
 
-import { fakeAuth } from "../middlewares/authMiddleware.js"; // ✅ import
+
 
 const router = express.Router();
 
-// ✅ ADD ITEM
+/**
+ * @route POST /api/items/add
+ * @desc Add a new item
+ * @access Private
+ */
 router.post("/add", fakeAuth, addItem);
 
-// ✅ GET OWN ITEMS
+/**
+ * @route GET /api/items
+ * @desc Get own items
+ * @access Private
+ */
 router.get("/", fakeAuth, getItems);
 
-// ✅ GET BY LEVEL
+/**
+ * @route GET /api/items/level/:level
+ * @desc Get items by level
+ * @access Private
+ */
 router.get("/level/:level", fakeAuth, getItemsByLevel);
 
-// ✅ GET CHILD ITEMS
+/**
+ * @route GET /api/items/child
+ * @desc Get child items
+ * @access Private
+ */
 router.get("/child", fakeAuth, getChildItems);
 
 export default router;

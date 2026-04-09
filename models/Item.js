@@ -80,9 +80,8 @@ const Item = sequelize.define(
     },
 
     unit: {
-      type: DataTypes.ENUM("gram", "piece"),
-      defaultValue: "gram",
-    },
+  type: DataTypes.STRING, 
+},
 
     current_status: {
       type: DataTypes.ENUM(
@@ -110,18 +109,11 @@ const Item = sequelize.define(
     storeName: {
       type: DataTypes.STRING,
     },
-    added_from_level: {
-  type: DataTypes.ENUM("central", "state", "district", "store"),
-  allowNull: false,
-},
-
-reference_id: {
-  type: DataTypes.INTEGER,
-  allowNull: false,
-}
   },
+  
+
   {
-    timestamps: true,
+    timestamps: false,
     tableName: "items",
   }
   

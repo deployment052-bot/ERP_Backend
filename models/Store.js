@@ -1,62 +1,74 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
+import District from "./District.js";
 
 const Store = sequelize.define(
   "Store",
   {
     id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
+      type: DataTypes.BIGINT,
       primaryKey: true,
+      autoIncrement: true,
     },
 
-    storeCode: {
+    store_code: {
       type: DataTypes.STRING,
       allowNull: false,
       unique: true,
+      field: "store_code",
     },
 
-    storeName: {
+    store_name: {
       type: DataTypes.STRING,
-      allowNull: false,
+      // allowNull: false,
+      field: "store_name",
     },
 
-    organizationLevel: {
-      type: DataTypes.ENUM("head_office", "State", "District","Retail"),
-      defaultValue: "branch",
+    organizationlevel: {
+      type: DataTypes.ENUM("head_office", "State", "District", "Retail"),
+      allowNull: false,
+      defaultValue: "Retail",
+      field: "organization_level",
     },
 
     state: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
 
     district: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
 
     district_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.BIGINT,
+      allowNull: true,
     },
 
     address: {
       type: DataTypes.TEXT,
+      allowNull: true,
     },
 
-    phoneNumber: {
+    phone_number: {
       type: DataTypes.STRING,
+      allowNull: true,
+      field: "phone_number",
     },
 
-    isActive: {
+    is_active: {
       type: DataTypes.BOOLEAN,
+      allowNull: false,
       defaultValue: true,
+      field: "is_active",
     },
   },
   {
-    timestamps: true,
     tableName: "stores",
+    timestamps: true,
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
   }
 );
 

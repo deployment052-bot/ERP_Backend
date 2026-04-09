@@ -1,13 +1,20 @@
-import { DataTypes } from "sequelize"; 
+import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
+import e from "express";
 
 const User = sequelize.define(
   "User",
   {
+    id: {
+      type: DataTypes.BIGINT,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+
     storeCode: {
       type: DataTypes.STRING,
-      primaryKey: true, 
       allowNull: false,
+      field: "store_code",
     },
 
     email: {
@@ -21,13 +28,14 @@ const User = sequelize.define(
 
     username: {
       type: DataTypes.STRING,
-      unique: true,
       allowNull: false,
+      unique: true,
     },
 
     phoneNumber: {
       type: DataTypes.STRING,
       unique: true,
+      field: "phone_number",
     },
 
     role: {
@@ -39,15 +47,33 @@ const User = sequelize.define(
     isPoliceVerified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+      field: "is_police_verified",
     },
 
-    policeDocUrl: DataTypes.STRING,
-    aadhaarUrl: DataTypes.STRING,
-    panUrl: DataTypes.STRING,
+    policeDocUrl: {
+      type: DataTypes.STRING,
+      field: "police_doc_url",
+    },
 
-    storeName: DataTypes.STRING,
+    aadhaarUrl: {
+      type: DataTypes.STRING,
+      field: "aadhaar_url",
+    },
 
-    organizationLevel: DataTypes.STRING,
+    panUrl: {
+      type: DataTypes.STRING,
+      field: "pan_url",
+    },
+
+    storeName: {
+      type: DataTypes.STRING,
+      field: "store_name",
+    },
+
+    organizationLevel: {
+      type: DataTypes.STRING,
+      field: "organization_level",
+    },
 
     password: {
       type: DataTypes.STRING,
@@ -57,15 +83,18 @@ const User = sequelize.define(
     userCode: {
       type: DataTypes.STRING,
       unique: true,
+      field: "user_code",
     },
 
     isActive: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
+      field: "is_active",
     },
   },
   {
-    timestamps: true,
+    tableName: "users",
+    timestamps: false,
   }
 );
 export default User;
