@@ -195,7 +195,8 @@ export const login = async (req, res) => {
       {
         email: user.email,
         role: user.role,
-        // organizationLevel: user.organizationLevel,
+        id:user.id,
+        organization_id: user.organization_id,
         // userCode: user.userCode,
           store_code: user.store_code,
       },
@@ -207,10 +208,12 @@ export const login = async (req, res) => {
       message: "Login successful",
       token,
       user: {
+      
         email: user.email,
         username: user.username,
         role: user.role,
-        // organizationLevel: user.organizationLevel,
+        id:user.id,
+        organization_id: user.organization_id,
         store_code: user.store_code,
         // userCode: user.userCode,
       },

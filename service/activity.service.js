@@ -1,4 +1,4 @@
-import ActivityLog from "../models/ActivityLog.js";
+import ActivityLog from "../model/activityLog.js";
 
 export const createActivityLog = async ({
   branch_id = null,

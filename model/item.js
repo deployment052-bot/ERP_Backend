@@ -10,7 +10,6 @@ const Item = sequelize.define(
       primaryKey: true,
     },
 
-    // Identification
     article_code: {
       type: DataTypes.STRING(100),
       allowNull: false,
@@ -23,7 +22,6 @@ const Item = sequelize.define(
       unique: true,
     },
 
-    // Basic Info
     item_name: {
       type: DataTypes.STRING(255),
       allowNull: false,
@@ -44,7 +42,6 @@ const Item = sequelize.define(
       allowNull: true,
     },
 
-    // Purity & Weight
     purity: {
       type: DataTypes.STRING(50),
       allowNull: false,
@@ -68,7 +65,6 @@ const Item = sequelize.define(
       defaultValue: 0,
     },
 
-    // Stone / Other charges
     stone_amount: {
       type: DataTypes.DECIMAL(14, 2),
       allowNull: true,
@@ -81,7 +77,6 @@ const Item = sequelize.define(
       defaultValue: 0,
     },
 
-    // Pricing
     purchase_rate: {
       type: DataTypes.DECIMAL(14, 2),
       allowNull: true,
@@ -94,20 +89,17 @@ const Item = sequelize.define(
       defaultValue: 0,
     },
 
-    // Tax
     hsn_code: {
       type: DataTypes.STRING(50),
       allowNull: true,
     },
 
-    // Unit
     unit: {
       type: DataTypes.ENUM("gram", "piece"),
       allowNull: false,
       defaultValue: "gram",
     },
 
-    // Item lifecycle
     current_status: {
       type: DataTypes.ENUM(
         "in_stock",
@@ -122,7 +114,6 @@ const Item = sequelize.define(
       defaultValue: "in_stock",
     },
 
-    // organization_id = Store.id
     organization_id: {
       type: DataTypes.BIGINT,
       allowNull: true,
@@ -131,8 +122,8 @@ const Item = sequelize.define(
   {
     tableName: "items",
     timestamps: true,
-    createdAt: "created_at",
-    updatedAt: "updated_at",
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
     indexes: [
       { unique: true, fields: ["article_code"] },
       { unique: true, fields: ["sku_code"] },
@@ -145,137 +136,3 @@ const Item = sequelize.define(
 );
 
 export default Item;
-
-
-
-
-// import { DataTypes } from "sequelize";
-// import sequelize from "../config/db.js";
-
-// const Item = sequelize.define(
-//   "Item",
-//   {
-//     id: {
-//       type: DataTypes.INTEGER,
-//       autoIncrement: true,
-//       primaryKey: true,
-//     },
-
-//     article_code: {
-//       type: DataTypes.STRING,
-//       allowNull: false,
-//       unique: true,
-//     },
-
-//     sku_code: {
-//       type: DataTypes.STRING,
-//       unique: true,
-//     },
-
-//     item_name: {
-//       type: DataTypes.STRING,
-//       allowNull: false,
-//     },
-
-//     metal_type: {
-//       type: DataTypes.ENUM("Gold", "Silver"),
-//       allowNull: false,
-//     },
-
-//     category: {
-//       type: DataTypes.STRING,
-//       allowNull: false,
-//     },
-
-//     details: {
-//       type: DataTypes.TEXT,
-//     },
-
-//     purity: {
-//       type: DataTypes.STRING,
-//       allowNull: false,
-//     },
-
-//     gross_weight: {
-//       type: DataTypes.FLOAT,
-//       allowNull: false,
-//     },
-
-//     net_weight: {
-//       type: DataTypes.FLOAT,
-//     },
-
-//     stone_weight: {
-//       type: DataTypes.FLOAT,
-//     },
-
-//     stone_amount: {
-//       type: DataTypes.FLOAT,
-//     },
-
-//     making_charge: {
-//       type: DataTypes.FLOAT,
-//       allowNull: false,
-//     },
-
-//     purchase_rate: {
-//       type: DataTypes.FLOAT,
-//     },
-
-//     sale_rate: {
-//       type: DataTypes.FLOAT,
-//     },
-
-//     hsn_code: {
-//       type: DataTypes.STRING,
-//     },
-
-//     unit: {
-//       type: DataTypes.ENUM("gram", "piece"),
-//       defaultValue: "gram",
-//     },
-
-//     current_status: {
-//       type: DataTypes.ENUM(
-//         "in_stock",
-//         "sold",
-//         "transit",
-//         "reserved",
-//         "exchange",
-//         "returned",
-//         "damaged"
-//       ),
-//       defaultValue: "in_stock",
-//     },
-
-    
-//     store_id: {
-//       type: DataTypes.INTEGER,
-//       allowNull: true,
-//     },
-
-//     storeCode: {
-//       type: DataTypes.STRING,
-//     },
-
-//     storeName: {
-//       type: DataTypes.STRING,
-//     },
-//     added_from_level: {
-//   type: DataTypes.ENUM("central", "state", "district", "store"),
-//   allowNull: false,
-// },
-
-// reference_id: {
-//   type: DataTypes.INTEGER,
-//   allowNull: false,
-// }
-//   },
-//   {
-//     timestamps: true,
-//     tableName: "items",
-//   }
-  
-// );
-
-// export default Item;

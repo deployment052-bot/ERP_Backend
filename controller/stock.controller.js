@@ -1,44 +1,158 @@
 import { Op } from "sequelize";
 import sequelize from "../config/db.js";
-import Item from "../models/Item.js";
-import StockMovement from "../models/StockMovement.js";
-import { createActivityLog } from "../services/activity.service.js";
+import Item from "../model/item.js";
+import Stock from "../model/stockrecord.js";
+import StockMovement from "../model/stockmovement.js";
+import Store from "../model/Store.js";
+import { createActivityLog } from "../service/activity.service.js";
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const hasAttr = (model, attr) => !!model?.rawAttributes?.[attr];
+
+const pickAttr = (model, attrs = []) => {
+  for (const attr of attrs) {
+    if (hasAttr(model, attr)) return attr;
+  }
+  return null;
+};
+
+const getCreatedKey = (model) =>
+  pickAttr(model, ["created_at", "createdAt"]) || "id";
+
+const getOrganizationFilter = (user, requestedOrgId = null) => {
+  // super_admin can access any org
+  if (user?.role === "super_admin") {
+    return requestedOrgId ? Number(requestedOrgId) : null;
+  }
+
+  // manager / tl / staff only their own organization
+  return user?.organization_id || null;
+};
+
+/* =========================================================
+   GET STOCK LIST
+========================================================= */
 
 export const getStockList = async (req, res) => {
   try {
     const user = req.user;
-    const { metal_type, category, status, search } = req.query;
+    const { search, category, metal_type, organization_id } = req.query;
 
-    const where = {};
+    let orgId = null;
 
-    if (user?.role !== "super_admin") {
-      where.branch_id = user?.branch_id;
+    if (user?.role === "super_admin") {
+      orgId = organization_id ? Number(organization_id) : null;
+    } else {
+      orgId = user?.organization_id ? Number(user.organization_id) : null;
     }
 
-    if (metal_type) where.metal_type = metal_type;
-    if (category) where.category = category;
-    if (status) where.current_status = status;
+    if (!user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized user",
+      });
+    }
+
+    if (user.role !== "super_admin" && !orgId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization not found for this user",
+      });
+    }
+
+    const itemWhere = {};
+    const stockWhere = {};
+
+    if (orgId) {
+      itemWhere.organization_id = orgId;
+      stockWhere.organization_id = orgId;
+    }
+
+    if (category) itemWhere.category = category;
+    if (metal_type) itemWhere.metal_type = metal_type;
 
     if (search) {
-      where[Op.or] = [
-        { item_name: { [Op.iLike]: `%${search}%` } },
+      itemWhere[Op.or] = [
+        { category: { [Op.iLike]: `%${search}%` } },
         { article_code: { [Op.iLike]: `%${search}%` } },
-        { sku_code: { [Op.iLike]: `%${search}%` } },
+        { item_name: { [Op.iLike]: `%${search}%` } },
+        { purity: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
     const items = await Item.findAll({
-      where,
-      order: [["createdAt", "DESC"]],
+      attributes: [
+        "id",
+        "category",
+        "article_code",
+        "sale_rate",
+        "making_charge",
+        "purity",
+        "net_weight",
+        "stone_weight",
+        "gross_weight",
+        "organization_id",
+      ],
+      where: itemWhere,
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+          attributes: ["id", "organization_id", "available_qty"],
+          where: Object.keys(stockWhere).length ? stockWhere : undefined,
+        },
+      ],
+      order: [["id", "DESC"]],
     });
+
+    const grouped = {};
+
+    for (const item of items) {
+      const stock = Array.isArray(item.stocks) ? item.stocks[0] : null;
+      const categoryKey = item.category || "Other";
+
+      if (!grouped[categoryKey]) {
+        grouped[categoryKey] = {
+          category: categoryKey,
+          code: item.article_code || "-",
+          quantity: 0,
+          selling_price: Number(item.sale_rate || 0),
+          making_charge: Number(item.making_charge || 0),
+          purity: item.purity || "-",
+          net_weight: 0,
+          stone_weight: 0,
+          gross_weight: 0,
+          action: "View",
+        };
+      }
+
+      grouped[categoryKey].quantity += Number(stock?.available_qty || 0);
+      grouped[categoryKey].net_weight += Number(item.net_weight || 0);
+      grouped[categoryKey].stone_weight += Number(item.stone_weight || 0);
+      grouped[categoryKey].gross_weight += Number(item.gross_weight || 0);
+    }
+
+    const data = Object.values(grouped).map((row) => ({
+      ...row,
+      quantity: Number(row.quantity.toFixed(3)),
+      net_weight: Number(row.net_weight.toFixed(3)),
+      stone_weight: Number(row.stone_weight.toFixed(3)),
+      gross_weight: Number(row.gross_weight.toFixed(3)),
+    }));
 
     return res.status(200).json({
       success: true,
-      message: "Stock list fetched successfully",
-      count: items.length,
-      data: items,
+      message: "Branch-wise stock fetched successfully",
+      organization_id: orgId,
+      count: data.length,
+      data,
     });
   } catch (error) {
+    console.error("getStockList error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch stock list",
@@ -47,18 +161,244 @@ export const getStockList = async (req, res) => {
   }
 };
 
+
+/* =========================================================
+   STOCK OF ALL CATOGARY
+========================================================= */
+
+
+
+export const getStockItemsByCategory = async (req, res) => {
+  try {
+    const user = req.user;
+    const { category } = req.params;
+    const { organization_id, search, metal_type } = req.query;
+
+    let orgId = null;
+
+    // =========================
+    // Resolve organization
+    // =========================
+    if (user?.role === "super_admin") {
+      orgId = organization_id ? Number(organization_id) : null;
+    } else {
+      orgId = user?.organization_id ? Number(user.organization_id) : null;
+    }
+
+    if (!user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized user",
+      });
+    }
+
+    if (user.role !== "super_admin" && !orgId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization not found for this user",
+      });
+    }
+
+    if (!category) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is required",
+      });
+    }
+
+    // =========================
+    // Filters
+    // =========================
+    const itemWhere = { category };
+    const stockWhere = {};
+
+    if (orgId) {
+      itemWhere.organization_id = orgId;
+      stockWhere.organization_id = orgId;
+    }
+
+    if (metal_type) {
+      itemWhere.metal_type = metal_type;
+    }
+
+    if (search) {
+      itemWhere[Op.or] = [
+        { item_name: { [Op.iLike]: `%${search}%` } },
+        { article_code: { [Op.iLike]: `%${search}%` } },
+        { sku_code: { [Op.iLike]: `%${search}%` } },
+        { purity: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    // =========================
+    // Fetch items
+    // =========================
+    const items = await Item.findAll({
+      attributes: [
+        "id",
+        "article_code",
+        "sku_code",
+        "item_name",
+        "metal_type",
+        "category",
+        "details",
+        "purity",
+        "gross_weight",
+        "net_weight",
+        "stone_weight",
+        "stone_amount",
+        "making_charge",
+        "purchase_rate",
+        "sale_rate",
+        "hsn_code",
+        "unit",
+        "current_status",
+        "organization_id",
+        "createdAt",
+        "updatedAt",
+      ],
+      where: itemWhere,
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+          where: Object.keys(stockWhere).length ? stockWhere : undefined,
+          attributes: [
+            "id",
+            "organization_id",
+            "item_id",
+            "available_qty",
+            "available_weight",
+            "reserved_qty",
+            "reserved_weight",
+            "transit_qty",
+            "transit_weight",
+            "damaged_qty",
+            "damaged_weight",
+            "dead_qty",
+            "dead_weight",
+          ],
+        },
+        {
+          model: Store,
+          as: "organization",
+          required: false,
+          attributes: ["id", "store_code", "store_name", "organization_level"],
+        },
+      ],
+      order: [["id", "DESC"]],
+    });
+
+    // =========================
+    // Flatten response
+    // =========================
+    const data = items.map((item, index) => {
+      const stock =
+        Array.isArray(item.stocks) && item.stocks.length > 0
+          ? item.stocks[0]
+          : null;
+
+      return {
+        idx: index,
+        id: Number(item.id || 0),
+        article_code: item.article_code || "",
+        sku_code: item.sku_code || "",
+        item_name: item.item_name || "",
+        metal_type: item.metal_type || "",
+        category: item.category || "",
+        details: item.details || "",
+        purity: item.purity || "",
+
+        gross_weight: Number(item.gross_weight || 0),
+        net_weight: Number(item.net_weight || 0),
+        stone_weight: Number(item.stone_weight || 0),
+        stone_amount: Number(item.stone_amount || 0),
+
+        making_charge: Number(item.making_charge || 0),
+        purchase_rate: Number(item.purchase_rate || 0),
+        sale_rate: Number(item.sale_rate || 0),
+
+        hsn_code: item.hsn_code || "",
+        unit: item.unit || "",
+        current_status: item.current_status || "",
+
+        // stock fields
+        stock_id: stock ? Number(stock.id || 0) : null,
+        quantity: Number(stock?.available_qty || 0),
+        available_qty: Number(stock?.available_qty || 0),
+        available_weight: Number(stock?.available_weight || 0),
+        reserved_qty: Number(stock?.reserved_qty || 0),
+        reserved_weight: Number(stock?.reserved_weight || 0),
+        transit_qty: Number(stock?.transit_qty || 0),
+        transit_weight: Number(stock?.transit_weight || 0),
+        damaged_qty: Number(stock?.damaged_qty || 0),
+        damaged_weight: Number(stock?.damaged_weight || 0),
+        dead_qty: Number(stock?.dead_qty || 0),
+        dead_weight: Number(stock?.dead_weight || 0),
+
+        // store / org fields
+        store_id: item.organization ? Number(item.organization.id || 0) : null,
+        storeCode: item.organization?.store_code || null,
+        storeName: item.organization?.store_name || null,
+        organization_level: item.organization?.organization_level || null,
+        organization_id: Number(item.organization_id || 0),
+
+        createdAt: item.createdAt || null,
+        updatedAt: item.updatedAt || null,
+
+        action: "View",
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${category} items fetched successfully`,
+      organization_id: orgId,
+      category,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error("getStockItemsByCategory error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch category items",
+      error: error.message,
+    });
+  }
+};
+/* =========================================================
+   GET SINGLE STOCK ITEM
+========================================================= */
+
 export const getSingleStock = async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
+    const { organization_id } = req.query;
+
+    const orgId = getOrganizationFilter(user, organization_id);
 
     const where = { id };
+    if (orgId) where.organization_id = orgId;
 
-    if (user?.role !== "super_admin") {
-      where.branch_id = user?.branch_id;
-    }
-
-    const item = await Item.findOne({ where });
+    const item = await Item.findOne({
+      where,
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+        },
+        {
+          model: Store,
+          as: "organization",
+          attributes: ["id", "store_code", "store_name", "organizationlevel"],
+          required: false,
+        },
+      ],
+    });
 
     if (!item) {
       return res.status(404).json({
@@ -67,9 +407,14 @@ export const getSingleStock = async (req, res) => {
       });
     }
 
+    const movementCreatedKey = getCreatedKey(StockMovement);
+
     const movements = await StockMovement.findAll({
-      where: { item_id: item.id },
-      order: [["createdAt", "DESC"]],
+      where: {
+        item_id: item.id,
+        ...(orgId ? { organization_id: orgId } : {}),
+      },
+      order: [[movementCreatedKey, "DESC"]],
       limit: 10,
     });
 
@@ -78,10 +423,13 @@ export const getSingleStock = async (req, res) => {
       message: "Stock item fetched successfully",
       data: {
         item,
+        stock: item.stocks?.[0] || null,
+        organization: item.organization || null,
         recent_movements: movements,
       },
     });
   } catch (error) {
+    console.error("getSingleStock error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch stock item",
@@ -89,6 +437,10 @@ export const getSingleStock = async (req, res) => {
     });
   }
 };
+
+/* =========================================================
+   UPDATE STOCK STATUS
+========================================================= */
 
 export const updateStockStatus = async (req, res) => {
   const t = await sequelize.transaction();
@@ -101,10 +453,20 @@ export const updateStockStatus = async (req, res) => {
     const where = { id };
 
     if (user?.role !== "super_admin") {
-      where.branch_id = user?.branch_id;
+      where.organization_id = user?.organization_id;
     }
 
-    const item = await Item.findOne({ where, transaction: t });
+    const item = await Item.findOne({
+      where,
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+        },
+      ],
+      transaction: t,
+    });
 
     if (!item) {
       await t.rollback();
@@ -116,29 +478,27 @@ export const updateStockStatus = async (req, res) => {
 
     const previousStatus = item.current_status;
 
-    await item.update(
-      { current_status },
-      { transaction: t }
-    );
+    await item.update({ current_status }, { transaction: t });
 
     const movement = await StockMovement.create(
       {
         item_id: item.id,
-        branch_id: item.branch_id,
+        organization_id: item.organization_id,
         movement_type: "adjustment",
         qty: item.unit === "piece" ? 1 : 0,
         weight: item.gross_weight || 0,
         previous_status: previousStatus,
         new_status: current_status,
         reference_type: "item_status_update",
-        remarks: remarks || `Status changed from ${previousStatus} to ${current_status}`,
+        remarks:
+          remarks || `Status changed from ${previousStatus} to ${current_status}`,
         created_by: user?.id || null,
       },
       { transaction: t }
     );
 
     await createActivityLog({
-      branch_id: item.branch_id,
+      organization_id: item.organization_id,
       user_id: user?.id || null,
       module: "stock",
       action: "update_status",
@@ -164,6 +524,7 @@ export const updateStockStatus = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
+    console.error("updateStockStatus error:", error);
 
     return res.status(500).json({
       success: false,
@@ -173,48 +534,67 @@ export const updateStockStatus = async (req, res) => {
   }
 };
 
+/* =========================================================
+   STOCK SUMMARY
+========================================================= */
+
 export const stockSummary = async (req, res) => {
   try {
     const user = req.user;
+    const { organization_id } = req.query;
 
-    const where = {};
+    const orgId = getOrganizationFilter(user, organization_id);
 
-    if (user?.role !== "super_admin") {
-      where.branch_id = user?.branch_id;
+    const itemWhere = {};
+    const stockWhere = {};
+
+    if (orgId) {
+      itemWhere.organization_id = orgId;
+      stockWhere.organization_id = orgId;
     }
 
-    const totalStock = await Item.count({
+    const totalStock = await Stock.count({
       where: {
-        ...where,
-        current_status: "in_stock",
+        ...stockWhere,
+        available_qty: { [Op.gt]: 0 },
       },
     });
 
-    const deadStock = await Item.count({
+    const deadStock = await Stock.count({
       where: {
-        ...where,
-        current_status: "damaged",
+        ...stockWhere,
+        dead_qty: { [Op.gt]: 0 },
       },
     });
 
-    const transitGoods = await Item.count({
+    const transitGoods = await Stock.count({
       where: {
-        ...where,
-        current_status: "transit",
+        ...stockWhere,
+        transit_qty: { [Op.gt]: 0 },
+      },
+    });
+
+    const reservedItems = await Stock.count({
+      where: {
+        ...stockWhere,
+        reserved_qty: { [Op.gt]: 0 },
       },
     });
 
     const soldItems = await Item.count({
       where: {
-        ...where,
+        ...itemWhere,
         current_status: "sold",
       },
     });
 
-    const reservedItems = await Item.count({
+    const lowStockItems = await Stock.count({
       where: {
-        ...where,
-        current_status: "reserved",
+        ...stockWhere,
+        available_qty: {
+          [Op.gt]: 0,
+          [Op.lte]: 2,
+        },
       },
     });
 
@@ -224,12 +604,14 @@ export const stockSummary = async (req, res) => {
       data: {
         total_stock: totalStock,
         dead_stock: deadStock,
+        low_stock: lowStockItems,
         transit_goods: transitGoods,
         sold_items: soldItems,
         reserved_items: reservedItems,
       },
     });
   } catch (error) {
+    console.error("stockSummary error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch stock summary",
@@ -238,14 +620,27 @@ export const stockSummary = async (req, res) => {
   }
 };
 
+/* =========================================================
+   ADD STOCK IN
+========================================================= */
+
 export const addStockIn = async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
-    const { item_id, remarks } = req.body;
+    const { item_id, qty = 1, weight = 0, remarks } = req.body;
     const user = req.user;
 
-    const item = await Item.findByPk(item_id, { transaction: t });
+    const itemWhere = { id: item_id };
+
+    if (user?.role !== "super_admin") {
+      itemWhere.organization_id = user?.organization_id;
+    }
+
+    const item = await Item.findOne({
+      where: itemWhere,
+      transaction: t,
+    });
 
     if (!item) {
       await t.rollback();
@@ -255,20 +650,56 @@ export const addStockIn = async (req, res) => {
       });
     }
 
-    const previousStatus = item.current_status;
+    let stock = await Stock.findOne({
+      where: {
+        item_id: item.id,
+        organization_id: item.organization_id,
+      },
+      transaction: t,
+    });
 
-    await item.update(
-      { current_status: "in_stock" },
+    if (!stock) {
+      stock = await Stock.create(
+        {
+          organization_id: item.organization_id,
+          item_id: item.id,
+          available_qty: 0,
+          available_weight: 0,
+          reserved_qty: 0,
+          reserved_weight: 0,
+          transit_qty: 0,
+          transit_weight: 0,
+          damaged_qty: 0,
+          damaged_weight: 0,
+          dead_qty: 0,
+          dead_weight: 0,
+        },
+        { transaction: t }
+      );
+    }
+
+    const incomingQty = Number(qty || 0);
+    const incomingWeight = Number(weight || item.gross_weight || 0);
+
+    await stock.update(
+      {
+        available_qty: Number(stock.available_qty) + incomingQty,
+        available_weight: Number(stock.available_weight) + incomingWeight,
+      },
       { transaction: t }
     );
+
+    const previousStatus = item.current_status;
+
+    await item.update({ current_status: "in_stock" }, { transaction: t });
 
     const movement = await StockMovement.create(
       {
         item_id: item.id,
-        branch_id: item.branch_id,
+        organization_id: item.organization_id,
         movement_type: "stock_in",
-        qty: item.unit === "piece" ? 1 : 0,
-        weight: item.gross_weight || 0,
+        qty: incomingQty,
+        weight: incomingWeight,
         previous_status: previousStatus,
         new_status: "in_stock",
         reference_type: "manual_stock_in",
@@ -279,7 +710,7 @@ export const addStockIn = async (req, res) => {
     );
 
     await createActivityLog({
-      branch_id: item.branch_id,
+      organization_id: item.organization_id,
       user_id: user?.id || null,
       module: "stock",
       action: "stock_in",
@@ -291,6 +722,8 @@ export const addStockIn = async (req, res) => {
         item_id: item.id,
         article_code: item.article_code,
         movement_id: movement.id,
+        qty: incomingQty,
+        weight: incomingWeight,
       },
     });
 
@@ -299,10 +732,14 @@ export const addStockIn = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Stock inward successful",
-      data: item,
+      data: {
+        item,
+        stock,
+      },
     });
   } catch (error) {
     await t.rollback();
+    console.error("addStockIn error:", error);
 
     return res.status(500).json({
       success: false,

@@ -1,50 +1,149 @@
-import { Op, fn, col, literal } from "sequelize";
+import { Op, fn, col, literal, QueryTypes } from "sequelize";
+import sequelize from "../config/db.js";
 import Item from "../model/item.js";
-
-// Apne actual models ke path yaha set karna
+import Stock from "../model/stockrecord.js";
 import StockMovement from "../model/stockmovement.js";
-// import Invoice from "../model/invoice.js";
 import SystemActivity from "../model/systemActivity.js";
 import Task from "../model/task.js";
 import MetalRate from "../model/metalRate.js";
 
-const getScopeWhere = (user) => {
-  const {
-    role,
-    organization_level,
-    state_code,
-    district_code,
-    store_code,
-  } = user || {};
+const hasAttr = (model, attr) => !!model?.rawAttributes?.[attr];
 
-  // super admin / central
+const pickAttr = (model, attrs = []) => {
+  for (const attr of attrs) {
+    if (hasAttr(model, attr)) return attr;
+  }
+  return null;
+};
+
+const normalize = (v) => String(v || "").toLowerCase().trim();
+
+const getCreatedKey = (model) =>
+  pickAttr(model, ["created_at", "createdAt", "updated_at", "updatedAt"]) ||
+  "createdAt";
+
+const buildScopedWhere = (model, user = {}, extra = {}) => {
+  const role = normalize(user.role);
+  const level = normalize(user.organization_level);
+
+  const where = { ...extra };
+
+  // Full access
   if (
     role === "super_admin" ||
     role === "capital" ||
-    organization_level === "central"
+    level === "central" ||
+    level === "head_office"
   ) {
-    return {};
+    return where;
   }
 
-  // state level
-  if (role === "state_manager" || organization_level === "state") {
-    return { state_code };
+  const orgKey = pickAttr(model, [
+    "organization_id",
+    "organizationId",
+    "branch_id",
+    "branchId",
+  ]);
+  const stateKey = pickAttr(model, ["state_code", "stateCode"]);
+  const districtKey = pickAttr(model, ["district_code", "districtCode"]);
+  const storeKey = pickAttr(model, ["store_code", "storeCode"]);
+
+  // State
+  if (level === "state" || role === "state_manager") {
+    if (stateKey && user.state_code) {
+      where[stateKey] = user.state_code;
+      return where;
+    }
+    if (orgKey && user.organization_id) {
+      where[orgKey] = user.organization_id;
+      return where;
+    }
+    return null;
   }
 
-  // district level
-  if (role === "district_manager" || organization_level === "district") {
-    return { district_code };
+  // District
+  if (level === "district" || role === "district_manager") {
+    if (districtKey && user.district_code) {
+      where[districtKey] = user.district_code;
+      return where;
+    }
+    if (orgKey && user.organization_id) {
+      where[orgKey] = user.organization_id;
+      return where;
+    }
+    return null;
   }
 
-  // store level
+  // Store / Retail
   if (
-    ["manager", "admin", "sales_girl"].includes(role) ||
-    organization_level === "store"
+    [
+      "manager",
+      "admin",
+      "sales_girl",
+      "tl",
+      "store_manager",
+      "inventory_manager",
+      "retail-manager",
+      "retail_manager",
+      "cashier",
+      "salesman",
+      "salesperson",
+    ].includes(role) ||
+    level === "retail" ||
+    level === "store"
   ) {
-    return { store_code };
+    if (storeKey && user.store_code) {
+      where[storeKey] = user.store_code;
+      return where;
+    }
+    if (orgKey && user.organization_id) {
+      where[orgKey] = user.organization_id;
+      return where;
+    }
+    return null;
   }
 
-  return null;
+  // fallback
+  if (orgKey && user.organization_id) {
+    where[orgKey] = user.organization_id;
+    return where;
+  }
+
+  return where;
+};
+
+const getSafeWhere = (model, user, extra = {}) => {
+  const scoped = buildScopedWhere(model, user, extra);
+  return scoped === null ? null : scoped;
+};
+
+// INDIA LOCAL DATE LABELS (IMPORTANT FIX)
+const getLast7DaysLabelsIndia = () => {
+  const labels = [];
+  const dayMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const now = new Date();
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+
+    // India local yyyy-mm-dd
+    const indiaDate = new Date(
+      d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
+
+    const yyyy = indiaDate.getFullYear();
+    const mm = String(indiaDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(indiaDate.getDate()).padStart(2, "0");
+
+    labels.push({
+      label: dayMap[indiaDate.getDay()],
+      fullDate: `${yyyy}-${mm}-${dd}`,
+    });
+  }
+
+  return labels;
 };
 
 export const getDashboardSummary = async (req, res) => {
@@ -56,169 +155,222 @@ export const getDashboardSummary = async (req, res) => {
       });
     }
 
-    const scopeWhere = getScopeWhere(req.user);
+    const taskCreatedKey = getCreatedKey(Task);
+    const activityCreatedKey = getCreatedKey(SystemActivity);
+    const metalCreatedKey = getCreatedKey(MetalRate);
 
-    if (scopeWhere === null) {
+    const metalTypeKey =
+      pickAttr(MetalRate, ["metal_type", "metalType"]) || "metal_type";
+    const metalRateKey =
+      pickAttr(MetalRate, ["rate", "metal_rate", "price"]) || "rate";
+
+    const stockScope = getSafeWhere(Stock, req.user);
+    const movementScope = getSafeWhere(StockMovement, req.user);
+    const taskScope = getSafeWhere(Task, req.user);
+    const activityScope = getSafeWhere(SystemActivity, req.user);
+
+    if (
+      stockScope === null &&
+      movementScope === null &&
+      taskScope === null &&
+      activityScope === null
+    ) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to view dashboard",
       });
     }
 
-    // -------------------------------
-    // 1) TOTAL STOCK
-    // -------------------------------
-    const totalStock = await Item.count({
+    // =========================================================
+    // 1) TOP CARDS (CURRENT INVENTORY STATE)
+    // =========================================================
+    const stockSummary = await Stock.findOne({
+      attributes: [
+        [fn("COALESCE", fn("SUM", col("available_qty")), 0), "total_available_qty"],
+        [fn("COALESCE", fn("SUM", col("dead_qty")), 0), "total_dead_qty"],
+        [fn("COALESCE", fn("SUM", col("transit_qty")), 0), "total_transit_qty"],
+      ],
+      where: stockScope || {},
+      raw: true,
+    });
+
+    const totalStock = Number(stockSummary?.total_available_qty || 0);
+
+    const deadStockItems = await Stock.count({
       where: {
-        ...scopeWhere,
-        current_status: "in_stock",
+        ...(stockScope || {}),
+        dead_qty: {
+          [Op.gt]: 0,
+        },
       },
     });
 
-    // -------------------------------
-    // 2) DEAD STOCK
-    // Assumption:
-    // dead stock = dead_stock / unsold / no movement
-    // adjust according to your DB
-    // -------------------------------
-    const deadStockItems = await Item.count({
+    const transitGoods = await Stock.count({
       where: {
-        ...scopeWhere,
-        current_status: "dead_stock",
+        ...(stockScope || {}),
+        transit_qty: {
+          [Op.gt]: 0,
+        },
       },
     });
 
-    // -------------------------------
-    // 3) TRANSIT GOODS
-    // -------------------------------
-    const transitGoods = await Item.count({
-      where: {
-        ...scopeWhere,
-        current_status: "in_transit",
-      },
-    });
-
-    // -------------------------------
-    // 4) GOLD / SILVER PRICE
-    // Assumption: MetalRate table exists
-    // latest rate by metal_type
-    // -------------------------------
+    // =========================================================
+    // 2) GOLD / SILVER PRICE
+    // =========================================================
     const goldRate = await MetalRate.findOne({
-      where: { metal_type: "Gold" },
-      order: [["created_at", "DESC"]],
+      where: {
+        [metalTypeKey]: {
+          [Op.iLike]: "gold",
+        },
+      },
+      order: [[metalCreatedKey, "DESC"]],
+      raw: true,
     });
 
     const silverRate = await MetalRate.findOne({
-      where: { metal_type: "Silver" },
-      order: [["created_at", "DESC"]],
-    });
-
-    // -------------------------------
-    // 5) SALES TRENDS (last 7 days)
-    // Assumption: Invoice has created_at + total_amount
-    // -------------------------------
-    // const sevenDaysAgo = new Date();
-    // sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-
-    // const salesTrendRaw = await Invoice.findAll({
-    //   attributes: [
-    //     [fn("DATE", col("created_at")), "date"],
-    //     [fn("COUNT", col("id")), "count"],
-    //     [fn("COALESCE", fn("SUM", col("total_amount")), 0), "amount"],
-    //   ],
-    //   where: {
-    //     ...scopeWhere,
-    //     created_at: {
-    //       [Op.gte]: sevenDaysAgo,
-    //     },
-    //   },
-    //   group: [fn("DATE", col("created_at"))],
-    //   order: [[fn("DATE", col("created_at")), "ASC"]],
-    //   raw: true,
-    // });
-
-    // const dayMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    // const salesTrends = salesTrendRaw.map((row) => {
-    //   const d = new Date(row.date);
-    //   return {
-    //     day: dayMap[d.getDay()],
-    //     date: row.date,
-    //     count: Number(row.count || 0),
-    //     amount: Number(row.amount || 0),
-    //   };
-    // });
-
-    // -------------------------------
-    // 6) SALES BY CATEGORY
-    // Assumption: Item.category linked with sold invoices/items
-    // If you have InvoiceItem model use that instead
-    // -------------------------------
-    const salesByCategoryRaw = await Item.findAll({
-      attributes: [
-        "category",
-        [fn("COUNT", col("id")), "count"],
-      ],
       where: {
-        ...scopeWhere,
-        current_status: "sold",
+        [metalTypeKey]: {
+          [Op.iLike]: "silver",
+        },
       },
-      group: ["category"],
-      order: [[literal("count"), "DESC"]],
+      order: [[metalCreatedKey, "DESC"]],
       raw: true,
     });
 
-    const totalCategoryCount = salesByCategoryRaw.reduce(
-      (sum, row) => sum + Number(row.count || 0),
-      0
+    // =========================================================
+    // 3) SALES TREND + CATEGORY (FROM STOCK MOVEMENTS)
+    // IMPORTANT FIX: INDIA DATE + TODAY INCLUDED
+    // =========================================================
+    const labels = getLast7DaysLabelsIndia();
+    const startDate = labels[0].fullDate; // oldest
+    const endDate = labels[labels.length - 1].fullDate; // today
+
+    let salesTrendRaw = [];
+    let salesByCategory = [];
+
+    try {
+      // ---------- SALES TREND ----------
+      const salesTrendQuery = `
+        SELECT 
+          DATE(created_at AT TIME ZONE 'Asia/Kolkata') AS date,
+          COUNT(id)::int AS count
+        FROM stock_movements
+        WHERE movement_type IN ('sale', 'sold', 'sales')
+          ${movementScope?.organization_id ? `AND organization_id = :organization_id` : ""}
+          AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN :startDate AND :endDate
+        GROUP BY DATE(created_at AT TIME ZONE 'Asia/Kolkata')
+        ORDER BY DATE(created_at AT TIME ZONE 'Asia/Kolkata') ASC
+      `;
+
+      salesTrendRaw = await sequelize.query(salesTrendQuery, {
+        replacements: {
+          startDate,
+          endDate,
+          organization_id: movementScope?.organization_id || null,
+        },
+        type: QueryTypes.SELECT,
+      });
+
+      // ---------- SALES BY CATEGORY ----------
+      // Since stock_movements has item_id, category item table se nikalegi
+      const salesByCategoryQuery = `
+        SELECT 
+          COALESCE(i.category, 'Other') AS category,
+          COUNT(sm.id)::int AS count
+        FROM stock_movements sm
+        LEFT JOIN items i ON i.id = sm.item_id
+        WHERE sm.movement_type IN ('sale', 'sold', 'sales')
+          ${movementScope?.organization_id ? `AND sm.organization_id = :organization_id` : ""}
+        GROUP BY i.category
+        ORDER BY count DESC
+      `;
+
+      const salesByCategoryRaw = await sequelize.query(salesByCategoryQuery, {
+        replacements: {
+          organization_id: movementScope?.organization_id || null,
+        },
+        type: QueryTypes.SELECT,
+      });
+
+      const totalCategoryCount = salesByCategoryRaw.reduce(
+        (sum, row) => sum + Number(row.count || 0),
+        0
+      );
+
+      salesByCategory = salesByCategoryRaw.map((row) => ({
+        category: row.category || "Other",
+        count: Number(row.count || 0),
+        percentage:
+          totalCategoryCount > 0
+            ? Number(((Number(row.count || 0) / totalCategoryCount) * 100).toFixed(2))
+            : 0,
+      }));
+    } catch (err) {
+      console.warn("⚠️ Sales chart query skipped:", err.message);
+      salesTrendRaw = [];
+      salesByCategory = [];
+    }
+
+    const salesMap = new Map(
+      salesTrendRaw.map((row) => [String(row.date), Number(row.count || 0)])
     );
 
-    const salesByCategory = salesByCategoryRaw.map((row) => ({
-      category: row.category || "Other",
-      count: Number(row.count || 0),
-      percentage:
-        totalCategoryCount > 0
-          ? Number(((Number(row.count) / totalCategoryCount) * 100).toFixed(2))
-          : 0,
+    const salesTrends = labels.map((d) => ({
+      day: d.label,
+      date: d.fullDate,
+      sales_count: salesMap.get(d.fullDate) || 0,
     }));
 
-    // -------------------------------
-    // 7) PENDING TASKS
-    // -------------------------------
-    const pendingTasks = await Task.findAll({
-      where: {
-        ...scopeWhere,
-        status: "pending",
-      },
-      order: [["created_at", "DESC"]],
-      limit: 5,
-      raw: true,
-    });
+    // =========================================================
+    // 4) PENDING TASKS
+    // =========================================================
+    let pendingTasks = [];
+    try {
+      pendingTasks = await Task.findAll({
+        where: {
+          ...(taskScope || {}),
+          status: "pending",
+        },
+        order: [[taskCreatedKey, "DESC"]],
+        limit: 5,
+        raw: true,
+      });
+    } catch (err) {
+      console.warn("⚠️ Pending task query skipped:", err.message);
+      pendingTasks = [];
+    }
 
-    // -------------------------------
-    // 8) RECENT ACTIVITIES
-    // -------------------------------
-    const recentActivities = await SystemActivity.findAll({
-      where: scopeWhere,
-      order: [["created_at", "DESC"]],
-      limit: 5,
-      raw: true,
-    });
+    // =========================================================
+    // 5) RECENT ACTIVITIES
+    // =========================================================
+    let recentActivities = [];
+    try {
+      recentActivities = await SystemActivity.findAll({
+        where: activityScope || {},
+        order: [[activityCreatedKey, "DESC"]],
+        limit: 5,
+        raw: true,
+      });
+    } catch (err) {
+      console.warn("⚠️ Recent activities query skipped:", err.message);
+      recentActivities = [];
+    }
 
     return res.status(200).json({
       success: true,
       message: "Dashboard fetched successfully",
       data: {
         cards: {
-          total_stock: totalStock,
-          dead_stock_items: deadStockItems,
-          transit_goods: transitGoods,
-          gold_price: goldRate ? Number(goldRate.rate) : 0,
-          silver_price: silverRate ? Number(silverRate.rate) : 0,
+          total_stock: Number(totalStock || 0),
+          dead_stock_items: Number(deadStockItems || 0),
+          transit_goods: Number(transitGoods || 0),
+          gold_price: goldRate ? Number(goldRate[metalRateKey] || 0) : 0,
+          silver_price: silverRate ? Number(silverRate[metalRateKey] || 0) : 0,
         },
-        // charts: {
-        //   sales_trends: salesTrends,
-        //   sales_by_category: salesByCategory,
-        // },
+        charts: {
+          sales_trends: salesTrends,
+          sales_by_category: salesByCategory,
+        },
         pending_tasks: pendingTasks,
         recent_activities: recentActivities,
       },

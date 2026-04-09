@@ -68,6 +68,19 @@ const Stock = sequelize.define(
       allowNull: false,
       defaultValue: 0,
     },
+
+    // dead stock
+    dead_qty: {
+      type: DataTypes.DECIMAL(12, 3),
+      allowNull: false,
+      defaultValue: 0,
+    },
+
+    dead_weight: {
+      type: DataTypes.DECIMAL(14, 3),
+      allowNull: false,
+      defaultValue: 0,
+    },
   },
   {
     tableName: "stocks",
