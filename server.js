@@ -8,6 +8,7 @@ import item from "./routes/itemRoutes.js";
 import dashboard from "./routes/dashboardRoutes.js";
 import requestItem from "./routes/request.js";
 import stock from "./routes/stockRoute.js"
+import Profile from "./routes/userRoute.js"
 dotenv.config();
 
 const app = express();
@@ -36,6 +37,7 @@ app.use('/item',item)
 app.use('/dash',dashboard)
 app.use('/request',requestItem)
 app.use('/stock',stock)
+app.use('/profile',Profile)
 // Test route
 app.get("/", (req, res) => {
   res.status(200).json({

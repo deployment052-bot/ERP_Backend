@@ -11,10 +11,11 @@ import {
   receiveTransfer,
   getIncomingTransfers,
   getOutgoingTransfers,
+  getAvailableStockForRequest
 } from "../controller/stockRequest.controller.js";
 
 const router = express.Router();
-
+router.get('/getinventory',auth,getAvailableStockForRequest)
 router.post("/requests", auth, createStockRequest);
 router.get("/requests/my", auth, getMyStockRequests);
 router.get("/requests/received", auth, getReceivedStockRequests);
