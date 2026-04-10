@@ -11,6 +11,11 @@ const State = sequelize.define("State", {
     type: DataTypes.STRING,
     allowNull: false,
   },
+  roles: {
+  type: DataTypes.JSON,
+  allowNull: true,
+  defaultValue: [],
+}
 }
 ,{
     tableName: "states",

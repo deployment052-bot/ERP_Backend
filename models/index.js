@@ -15,8 +15,8 @@ import sequelize from "../config/db.js";
 
 
 // STATE → DISTRICT
-State.hasMany(District, { foreignKey: "state_id" });
-District.belongsTo(State, { foreignKey: "state_id" });
+State.hasMany(District, { foreignKey: "state_name" });
+District.belongsTo(State, { foreignKey: "state_name" });
 
 // DISTRICT → STORE
 District.hasMany(Store, { foreignKey: "district_id" });

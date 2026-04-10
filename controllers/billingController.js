@@ -18,7 +18,7 @@ export const createBilling = async (req, res) => {
       throw new Error("Items required");
     }
 
-    // ✅ 1. CUSTOMER
+    // CUSTOMER
     let customerData;
 
     if (customer.id) {
@@ -46,7 +46,7 @@ export const createBilling = async (req, res) => {
       }
     }
 
-    // ✅ 2. ITEM CALCULATION
+    //  2. ITEM CALCULATION
     let grandTotal = 0;
 
     const processedItems = items.map((i) => {
@@ -69,7 +69,7 @@ export const createBilling = async (req, res) => {
       };
     });
 
-    // ✅ 3. INVOICE
+    // INVOICE
     const invoice = await Invoice.create({
       invoice_number: "INV-" + Date.now(),
       customer_id: customerData.id,
@@ -90,7 +90,7 @@ export const createBilling = async (req, res) => {
       { transaction: t }
     );
 
-    // ✅ 4. LEDGER (DEBIT)
+    //  4. LEDGER (DEBIT)
     await LedgerEntry.create({
       customer_id: customerData.id,
       type: "DEBIT",
@@ -103,7 +103,7 @@ export const createBilling = async (req, res) => {
     await t.commit();
 
     res.json({
-      message: "Billing Done ✅",
+      message: "Billing Done ",
       invoice_id: invoice.id,
       total: grandTotal,
     });

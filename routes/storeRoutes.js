@@ -2,14 +2,17 @@ import express from "express";
 import {
   registerStore,
   bulkCreateStores,
+  getStoresByDistrict,
 } from "../controllers/storeController.js";
+
+import { checkRole } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// Single Store Register
-router.post("/register", registerStore);
+//  Only SuperAdmin
+router.post("/register", checkRole("SuperAdmin"), registerStore);
 
-// Bulk Insert (20 stores ek saath)
-router.post("/bulk", bulkCreateStores);
+router.post("/bulk", checkRole("SuperAdmin"), bulkCreateStores);
+router.get("/district/:district_id", getStoresByDistrict);
 
 export default router;
