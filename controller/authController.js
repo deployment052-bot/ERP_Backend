@@ -198,6 +198,7 @@ export const login = async (req, res) => {
         id:user.id,
         organization_id: user.organization_id,
         // userCode: user.userCode,
+        organization_level:user.organization_level,
           store_code: user.store_code,
       },
       process.env.JWT_SECRET,
@@ -216,6 +217,7 @@ export const login = async (req, res) => {
         organization_id: user.organization_id,
         store_code: user.store_code,
         // userCode: user.userCode,
+        organization_level:user.organization_level,
       },
     });
 

@@ -9,7 +9,7 @@ import ActivityLog from "../model/activityLog.js";
 import Item from "../model/item.js";
 import StockRequest from "../model/StockRequest.js";
 import StockRequestItem from "../model/stockRequestItem.js";
-
+import District from "../model/District.js";
 const generateTransferNo = () => {
   return `TRF-${Date.now()}`;
 };
@@ -177,18 +177,8 @@ export const getAvailableStockForRequest = async (req, res) => {
         "sku_code",
         "metal_type",
         "category",
-        "details",
         "purity",
-        "gross_weight",
-        "net_weight",
-        "stone_weight",
-        "stone_amount",
-        "making_charge",
-        "purchase_rate",
-        "sale_rate",
-        "hsn_code",
         "unit",
-        "current_status",
         "organization_id",
       ],
       where: itemWhere,
@@ -200,71 +190,52 @@ export const getAvailableStockForRequest = async (req, res) => {
           where: stockWhere,
           attributes: [
             "id",
-            "organization_id",
             "item_id",
+            "organization_id",
             "available_qty",
             "available_weight",
-            "reserved_qty",
-            "reserved_weight",
-            "transit_qty",
-            "transit_weight",
-            "damaged_qty",
-            "damaged_weight",
-            "dead_qty",
-            "dead_weight",
           ],
-        },
-        {
-          model: Store,
-          as: "organization",
-          required: false,
-          attributes: ["id", "store_code", "store_name", "organization_level"],
         },
       ],
       order: [["id", "DESC"]],
     });
 
     const data = items.map((item) => {
-      const stock = Array.isArray(item.stocks) && item.stocks.length > 0
-        ? item.stocks[0]
-        : null;
+      const stock =
+        Array.isArray(item.stocks) && item.stocks.length > 0
+          ? item.stocks[0]
+          : null;
 
       const availableQty = Number(stock?.available_qty || 0);
 
-      let statusLabel = "Medium";
-      if (availableQty <= 2) statusLabel = "Critical";
-      else if (availableQty <= 10) statusLabel = "Medium";
-      else statusLabel = "Optimum";
+      let statusLabel = "medium";
+      if (availableQty <= 2) {
+        statusLabel = "critical";
+      } else if (availableQty <= 12) {
+        statusLabel = "medium";
+      } else {
+        statusLabel = "optimum";
+      }
 
       return {
-        item_id: Number(item.id || 0),
+        item_id: Number(item.id),
         item_name: item.item_name || "",
-        code: item.article_code || "",
+        article_code: item.article_code || "",
         sku_code: item.sku_code || "",
         category: item.category || "",
         metal_type: item.metal_type || "",
         purity: item.purity || "",
-        details: item.details || "",
-     
-        stone_weight: Number(item.stone_weight || 0),
+        unit: item.unit || "",
         available_qty: availableQty,
         available_weight: Number(stock?.available_weight || 0),
         status_label: statusLabel,
-
-        // organization: item.organization
-        //   ? {
-        //       id: Number(item.organization.id || 0),
-        //       store_code: item.organization.store_code || "",
-        //       store_name: item.organization.store_name || "",
-        //       organization_level: item.organization.organization_level || "",
-        //     }
-        //   : null,
+        request_qty: 0,
       };
     });
 
     return res.status(200).json({
       success: true,
-      message: "Available stock items fetched successfully",
+      message: "Available stock fetched successfully",
       count: data.length,
       data,
     });
@@ -281,220 +252,116 @@ export const getAvailableStockForRequest = async (req, res) => {
 
 
 
-
 export const createStockRequest = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
     const user = req.user;
-    const { to_organization_id, priority, category, remarks, items } = req.body;
+    const { store_id, items, priority, category, notes } = req.body;
 
-    if (!user?.organization_id) {
-      await transaction.rollback();
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
-
-    // if (!to_organization_id) {
-    //   await transaction.rollback();
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "to_organization_id is required",
-    //   });
-    // }
-
-    if (Number(to_organization_id) === Number(user.organization_id)) {
-      await transaction.rollback();
+    if (!store_id || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Source and destination organization cannot be same",
+        message: "Invalid request"
       });
     }
 
-    if (!Array.isArray(items) || !items.length) {
+    // ================= STORE =================
+    const store = await Store.findOne({
+      where: { id: store_id },
+      transaction
+    });
+
+    if (!store) {
       await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Request items are required",
-      });
+      return res.status(404).json({ message: "Store not found" });
     }
 
-    // =========================
-    // FROM org
-    // =========================
-    const fromOrg = await Store.findByPk(user.organization_id, { transaction });
+    // ================= DISTRICT =================
+    const district = await District.findOne({
+      where: { id: store.district_id },
+      transaction
+    });
 
-    if (!fromOrg) {
+    if (!district) {
       await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: "Source organization not found",
-      });
+      return res.status(404).json({ message: "District not found" });
     }
 
-    // =========================
-    // TO org
-    // =========================
-    const toOrg = await Store.findByPk(Number(to_organization_id), { transaction });
+    // ================= SAFE MAPPING (FIXED) =================
+    const from_organization_id = user.organization_id;
 
-    if (!toOrg) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: "Destination organization not found",
-      });
-    }
+    // 🔥 FIX: NEVER NULL SAFE
+    const to_organization_id =
+      store.organization_id ||
+      user.organization_id;
 
-    // =========================
-    // STRICT validation
-    // =========================
-    if (!fromOrg.store_code || !fromOrg.store_name) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Source organization data incomplete (store_code/store_name missing)",
-      });
-    }
+    const to_district_code = String(
+      district.district_id || store.district_id || "0"
+    );
 
-    if (!toOrg.store_code || !toOrg.store_name) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Destination organization data incomplete (store_code/store_name missing)",
-      });
-    }
+    const to_district_name =
+      district.district || store.district || "Unknown";
 
-    if (!toOrg.district_id) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Destination organization (${toOrg.store_name}) me district_id missing hai.`,
-      });
-    }
-
-    // =========================
-    // Validate selected items
-    // =========================
-    for (const row of items) {
-      const item_id = Number(row.item_id);
-      const qty = Number(row.qty || 0);
-
-      if (!item_id || qty <= 0) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: "Each item must have valid item_id and qty",
-        });
-      }
-
-      const item = await Item.findByPk(item_id, { transaction });
-
-      if (!item) {
-        await transaction.rollback();
-        return res.status(404).json({
-          success: false,
-          message: `Item not found for item_id ${item_id}`,
-        });
-      }
-
-      if (Number(item.organization_id) !== Number(user.organization_id)) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Item ${item_id} does not belong to your inventory`,
-        });
-      }
-    }
-
-    // =========================
-    // Create request
-    // =========================
-    const request = await StockRequest.create(
+    // ================= CREATE REQUEST =================
+    const stockRequest = await StockRequest.create(
       {
-        request_no: generateRequestNo(),
+        request_no: `REQ-${Date.now()}`,
 
-        from_store_code: fromOrg.store_code,
-        from_store_name: fromOrg.store_name,
+        from_organization_id,
+        from_store_code: store.store_code,
+        from_store_name: store.store_name,
 
-        // yaha district_id ko hi save kar rahe hain
-        to_district_code: String(toOrg.district_id),
+        to_organization_id,
+        to_district_code,
+        to_district_name,
 
         priority: priority || "medium",
-        category: category || null,
-        notes: remarks || null,
+        category,
+        notes,
         status: "pending",
         created_by: user.id,
       },
       { transaction }
     );
 
-    const createdItems = [];
+    // ================= ITEMS (FIXED SAFETY) =================
+    const requestItems = items
+      .filter(i => i.item_id && Number(i.request_qty) > 0)
+      .map(i => ({
+        request_id: stockRequest.id,
+        item_id: i.item_id,
+        request_qty: Number(i.request_qty),
+        approved_qty: 0,
+        status: "pending"
+      }));
 
-    for (const row of items) {
-      const item_id = Number(row.item_id);
-      const qty = Number(row.qty || 0);
-      const weight = Number(row.weight || 0);
-      const rate = Number(row.rate || 0);
-
-      const item = await Item.findByPk(item_id, { transaction });
-
-      const requestItem = await StockRequestItem.create(
-        {
-          request_id: request.id,
-          item_id,
-          item_name: item.item_name || null,
-          article_code: item.article_code || null,
-          sku_code: item.sku_code || null,
-          metal_type: item.metal_type || null,
-          category: item.category || null,
-          purity: item.purity || null,
-          qty,
-          weight,
-          rate,
-          approved_qty: 0,
-          approved_weight: 0,
-          remarks: row.remarks || null,
-        },
-        { transaction }
-      );
-
-      createdItems.push(requestItem);
+    if (requestItems.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "No valid items found"
+      });
     }
 
-    await createActivity({
-      user_id: user.id,
-      action: "stock_request_created",
-      title: "Stock request created",
-      description: `Stock request ${request.request_no} created successfully`,
-      meta: {
-        request_id: request.id,
-        request_no: request.request_no,
-        from_store_code: fromOrg.store_code,
-        to_district_id: toOrg.district_id,
-      },
-      transaction,
-    });
+    await StockRequestItem.bulkCreate(requestItems, { transaction });
 
     await transaction.commit();
 
     return res.status(201).json({
       success: true,
       message: "Stock request created successfully",
-      data: {
-        request,
-        items: createdItems,
-      },
+      request_id: stockRequest.id
     });
+
   } catch (error) {
     await transaction.rollback();
     console.error("createStockRequest error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to create stock request",
-      error: error.message,
+      message: "Server error",
+      error: error.message
     });
   }
 };

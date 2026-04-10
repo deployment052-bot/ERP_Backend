@@ -1,68 +1,109 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
 
-const StockRequestItem = sequelize.define(
-  "StockRequestItem",
+const StockRequest = sequelize.define(
+  "StockRequest",
   {
     id: {
-      type: DataTypes.BIGINT,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
     },
 
-    request_id: {
-      type: DataTypes.BIGINT,
+    request_no: {
+      type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
     },
 
-    item_id: {
-      type: DataTypes.BIGINT,
-      allowNull: false,
+    from_organization_id: {
+      type: DataTypes.INTEGER,
+      // allowNull: false,
     },
 
-    qty: {
-      type: DataTypes.DECIMAL(12, 3),
-      allowNull: false,
-      defaultValue: 0,
+    from_store_code: {
+      type: DataTypes.STRING,
+      // allowNull: false,
     },
 
-    weight: {
-      type: DataTypes.DECIMAL(14, 3),
-      allowNull: false,
-      defaultValue: 0,
+    from_store_name: {
+      type: DataTypes.STRING,
+      // allowNull: true,
     },
 
-    rate: {
-      type: DataTypes.DECIMAL(14, 2),
-      allowNull: false,
-      defaultValue: 0,
+    to_organization_id: {
+      type: DataTypes.INTEGER,
+      // allowNull: false,
     },
 
-    approved_qty: {
-      type: DataTypes.DECIMAL(12, 3),
-      allowNull: false,
-      defaultValue: 0,
+    to_district_code: {
+      type: DataTypes.STRING,
+      // allowNull: false,
     },
 
-    approved_weight: {
-      type: DataTypes.DECIMAL(14, 3),
-      allowNull: false,
-      defaultValue: 0,
+    to_district_name: {
+      type: DataTypes.STRING,
+      // allowNull: true,
     },
 
-    remarks: {
+    priority: {
+      type: DataTypes.ENUM("low", "medium", "high", "critical"),
+      // allowNull: false,
+      defaultValue: "medium",
+    },
+
+    category: {
+      type: DataTypes.STRING,
+      // allowNull: true,
+    },
+
+    notes: {
       type: DataTypes.TEXT,
+      // allowNull: true,
+    },
+
+    status: {
+      type: DataTypes.ENUM(
+        "pending",
+        "approved",
+        "partially_approved",
+        "rejected",
+        "completed"
+      ),
+      allowNull: false,
+      defaultValue: "pending",
+    },
+
+    created_by: {
+      type: DataTypes.INTEGER,
+      // allowNull: true,
+    },
+
+    approved_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    approved_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    rejected_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    rejected_at: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
   },
   {
-    tableName: "stock_request_items",
-    timestamps: false,
-    indexes: [
-      { fields: ["request_id"] },
-      { fields: ["item_id"] },
-    ],
+    tableName: "stock_requests",
+    timestamps: true,
+    underscored: true,
   }
 );
 
-export default StockRequestItem;
+export default StockRequest;
