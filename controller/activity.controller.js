@@ -8,12 +8,12 @@ export const getRecentActivities = async (req, res) => {
 
     // super admin sab dekhega
     if (user?.role !== "super_admin") {
-      where.branch_id = user?.branch_id;
+      where.organization_id = user?.organization_id;
     }
 
     const activities = await ActivityLog.findAll({
       where,
-      order: [["createdAt", "DESC"]],
+      order: [["created_at", "DESC"]],
       limit: 15,
     });
 
@@ -23,6 +23,8 @@ export const getRecentActivities = async (req, res) => {
       data: activities,
     });
   } catch (error) {
+    console.error("getRecentActivities error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch recent activities",

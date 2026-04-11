@@ -4,23 +4,86 @@ import sequelize from "../config/db.js";
 const Task = sequelize.define(
   "Task",
   {
-    title: { type: DataTypes.STRING, allowNull: false },
-    description: DataTypes.TEXT,
-    priority: { type: DataTypes.STRING, defaultValue: "medium" },
-    status: { type: DataTypes.STRING, defaultValue: "pending" },
-    task_type: DataTypes.STRING,
-    reference_id: DataTypes.INTEGER,
-    reference_no: DataTypes.STRING,
-    state_code: DataTypes.STRING,
-    district_code: DataTypes.STRING,
-    store_code: DataTypes.STRING,
-    store_name: DataTypes.STRING,
-    assigned_to: DataTypes.INTEGER,
-    created_by: DataTypes.INTEGER,
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    priority: {
+      type: DataTypes.STRING,
+      defaultValue: "medium",
+    },
+
+    status: {
+      type: DataTypes.STRING,
+      defaultValue: "pending",
+    },
+
+    task_type: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    reference_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    reference_no: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    state_code: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    district_code: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    store_code: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    store_name: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    assigned_to: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    created_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    updated_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   },
   {
     tableName: "tasks",
-    timestamps: false,
+    timestamps: true,
+    underscored: true,
   }
 );
 

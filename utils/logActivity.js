@@ -1,27 +1,78 @@
-import ActivityLog from "../models/ActivityLog.js";
+import { DataTypes } from "sequelize";
+import sequelize from "../config/db.js";
 
-export const logActivity = async ({
-  branch_id = null,
-  user_id = null,
-  action,
-  title,
-  description = "",
-  meta = {},
-  icon = "activity",
-  color = "blue",
-}) => {
-  try {
-    await ActivityLog.create({
-      branch_id,
-      user_id,
-      action,
-      title,
-      description,
-      meta,
-      icon,
-      color,
-    });
-  } catch (error) {
-    console.error("Activity Log Error:", error.message);
+const ActivityLog = sequelize.define(
+  "ActivityLog",
+  {
+    id: {
+      type: DataTypes.BIGINT,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+
+    organization_id: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+    },
+
+    user_id: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+    },
+
+    action: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+
+    module_name: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+
+    reference_id: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+    },
+
+    reference_no: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+
+    title: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    meta: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: {},
+    },
+
+    icon: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: "activity",
+    },
+
+    color: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      defaultValue: "blue",
+    },
+  },
+  {
+    tableName: "activity_logs",
+    timestamps: true,
+    underscored: true,
   }
-};
+);
+
+export default ActivityLog;

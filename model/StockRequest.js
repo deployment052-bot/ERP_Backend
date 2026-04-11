@@ -16,6 +16,11 @@ const StockRequest = sequelize.define(
       unique: true,
     },
 
+    from_organization_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+
     from_store_code: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -26,9 +31,19 @@ const StockRequest = sequelize.define(
       allowNull: true,
     },
 
+    to_organization_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+
     to_district_code: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+
+    to_district_name: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
 
     priority: {

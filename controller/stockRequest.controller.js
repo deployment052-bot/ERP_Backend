@@ -6,7 +6,9 @@ import StockTransferItem from "../model/stockTransferItem.js";
 import Stock from "../model/stockrecord.js";
 import StockMovement from "../model/stockmovement.js";
 import ActivityLog from "../model/activityLog.js";
+import SystemActivity from "../model/systemActivity.js"
 import Item from "../model/item.js";
+import Task from "../model/task.js"
 import StockRequest from "../model/StockRequest.js";
 import StockRequestItem from "../model/stockRequestItem.js";
 import District from "../model/District.js";
@@ -260,100 +262,137 @@ export const createStockRequest = async (req, res) => {
     const { store_id, items, priority, category, notes } = req.body;
 
     if (!store_id || !Array.isArray(items) || items.length === 0) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Invalid request"
+        message: "store_id and items are required",
       });
     }
 
-    // ================= STORE =================
     const store = await Store.findOne({
       where: { id: store_id },
-      transaction
+      transaction,
     });
 
     if (!store) {
       await transaction.rollback();
-      return res.status(404).json({ message: "Store not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Store not found",
+      });
     }
 
-    // ================= DISTRICT =================
     const district = await District.findOne({
       where: { id: store.district_id },
-      transaction
+      transaction,
     });
 
     if (!district) {
       await transaction.rollback();
-      return res.status(404).json({ message: "District not found" });
+      return res.status(404).json({
+        success: false,
+        message: "District not found",
+      });
     }
 
-    // ================= SAFE MAPPING (FIXED) =================
-    const from_organization_id = user.organization_id;
+    const validItems = items
+      .filter((i) => i.item_id && Number(i.request_qty) > 0)
+      .map((i) => ({
+        item_id: Number(i.item_id),
+        request_qty: Number(i.request_qty),
+        approved_qty: 0,
+        status: "pending",
+      }));
 
-    // 🔥 FIX: NEVER NULL SAFE
-    const to_organization_id =
-      store.organization_id ||
-      user.organization_id;
+    if (validItems.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "No valid items found",
+      });
+    }
 
-    const to_district_code = String(
-      district.district_id || store.district_id || "0"
-    );
+    const request_no = `REQ-${user.organization_id}-${Date.now()}`;
 
-    const to_district_name =
-      district.district || store.district || "Unknown";
+    const districtName =
+      district.name || district.district || district.district_name || "Unknown";
 
-    // ================= CREATE REQUEST =================
     const stockRequest = await StockRequest.create(
       {
-        request_no: `REQ-${Date.now()}`,
-
-        from_organization_id,
+        request_no,
+        from_organization_id: user.organization_id,
         from_store_code: store.store_code,
         from_store_name: store.store_name,
-
-        to_organization_id,
-        to_district_code,
-        to_district_name,
-
+        to_organization_id: district.id,
+        to_district_code: String(district.id),
+        to_district_name: districtName,
         priority: priority || "medium",
-        category,
-        notes,
+        category: category || null,
+        notes: notes || null,
         status: "pending",
         created_by: user.id,
       },
       { transaction }
     );
 
-    // ================= ITEMS (FIXED SAFETY) =================
-    const requestItems = items
-      .filter(i => i.item_id && Number(i.request_qty) > 0)
-      .map(i => ({
-        request_id: stockRequest.id,
-        item_id: i.item_id,
-        request_qty: Number(i.request_qty),
-        approved_qty: 0,
-        status: "pending"
-      }));
+    const requestItemsPayload = validItems.map((item) => ({
+      request_id: stockRequest.id,
+      item_id: item.item_id,
+      request_qty: item.request_qty,
+      approved_qty: item.approved_qty,
+      status: item.status,
+    }));
 
-    if (requestItems.length === 0) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "No valid items found"
-      });
-    }
+    await StockRequestItem.bulkCreate(requestItemsPayload, { transaction });
 
-    await StockRequestItem.bulkCreate(requestItems, { transaction });
+    // ================= TASK CREATE =================
+    await Task.create(
+      {
+        title: "Stock request approval required",
+        description: `${store.store_name} submitted stock request ${stockRequest.request_no} for district ${districtName}`,
+        priority: priority || "medium",
+        status: "pending",
+        task_type: "stock_request_approval",
+        reference_id: stockRequest.id,
+        reference_no: stockRequest.request_no,
+        district_code: String(district.id),
+        store_code: store.store_code || null,
+        store_name: store.store_name || null,
+        assigned_to: null, // district manager user id later if needed
+        created_by: user.id,
+      },
+      { transaction }
+    );
+
+    // ================= RECENT / SYSTEM ACTIVITY =================
+    await SystemActivity.create(
+      {
+        title: "New stock request submitted",
+        description: `${store.store_name} submitted request ${stockRequest.request_no} to district ${districtName}`,
+        activity_type: "stock_request_created",
+        module_name: "stock_request",
+        reference_id: stockRequest.id,
+        reference_no: stockRequest.request_no,
+        district_code: String(district.id),
+        store_code: store.store_code || null,
+        store_name: store.store_name || null,
+        created_by: user.id,
+        created_at: new Date(),
+      },
+      { transaction }
+    );
 
     await transaction.commit();
 
     return res.status(201).json({
       success: true,
       message: "Stock request created successfully",
-      request_id: stockRequest.id
+      data: {
+        request_id: stockRequest.id,
+        request_no: stockRequest.request_no,
+        total_items: requestItemsPayload.length,
+      },
     });
-
   } catch (error) {
     await transaction.rollback();
     console.error("createStockRequest error:", error);
@@ -361,7 +400,7 @@ export const createStockRequest = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message
+      error: error.message,
     });
   }
 };

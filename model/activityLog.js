@@ -10,7 +10,7 @@ const ActivityLog = sequelize.define(
       primaryKey: true,
     },
 
-    branch_id: {
+    organization_id: {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
@@ -21,33 +21,48 @@ const ActivityLog = sequelize.define(
     },
 
     action: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(100),
       allowNull: false,
     },
 
+    module_name: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+
+    reference_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    reference_no: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+
     title: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
 
     description: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
 
     meta: {
-      type: DataTypes.JSON,
+      type: DataTypes.JSONB,
       allowNull: true,
     },
 
     icon: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(100),
       allowNull: true,
       defaultValue: "activity",
     },
 
     color: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(50),
       allowNull: true,
       defaultValue: "blue",
     },
@@ -55,6 +70,7 @@ const ActivityLog = sequelize.define(
   {
     tableName: "activity_logs",
     timestamps: true,
+    underscored: true,
   }
 );
 

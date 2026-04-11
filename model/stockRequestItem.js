@@ -1,8 +1,8 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
 
-const StockRequest = sequelize.define(
-  "StockRequest",
+const StockRequestItem = sequelize.define(
+  "StockRequestItem", // ✅ IMPORTANT (name change)
   {
     id: {
       type: DataTypes.INTEGER,
@@ -10,56 +10,26 @@ const StockRequest = sequelize.define(
       primaryKey: true,
     },
 
-    request_no: {
-      type: DataTypes.STRING,
+    request_id: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      unique: true,
     },
 
-    from_organization_id: {
+    item_id: {
       type: DataTypes.INTEGER,
-      // allowNull: false,
+      allowNull: false,
     },
 
-    from_store_code: {
-      type: DataTypes.STRING,
-      // allowNull: false,
+    request_qty: {
+      type: DataTypes.DECIMAL(12, 3),
+      allowNull: false,
+      defaultValue: 0,
     },
 
-    from_store_name: {
-      type: DataTypes.STRING,
-      // allowNull: true,
-    },
-
-    to_organization_id: {
-      type: DataTypes.INTEGER,
-      // allowNull: false,
-    },
-
-    to_district_code: {
-      type: DataTypes.STRING,
-      // allowNull: false,
-    },
-
-    to_district_name: {
-      type: DataTypes.STRING,
-      // allowNull: true,
-    },
-
-    priority: {
-      type: DataTypes.ENUM("low", "medium", "high", "critical"),
-      // allowNull: false,
-      defaultValue: "medium",
-    },
-
-    category: {
-      type: DataTypes.STRING,
-      // allowNull: true,
-    },
-
-    notes: {
-      type: DataTypes.TEXT,
-      // allowNull: true,
+    approved_qty: {
+      type: DataTypes.DECIMAL(12, 3),
+      allowNull: false,
+      defaultValue: 0,
     },
 
     status: {
@@ -67,43 +37,17 @@ const StockRequest = sequelize.define(
         "pending",
         "approved",
         "partially_approved",
-        "rejected",
-        "completed"
+        "rejected"
       ),
       allowNull: false,
       defaultValue: "pending",
     },
-
-    created_by: {
-      type: DataTypes.INTEGER,
-      // allowNull: true,
-    },
-
-    approved_by: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-
-    approved_at: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-
-    rejected_by: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-
-    rejected_at: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
   },
   {
-    tableName: "stock_requests",
+    tableName: "stock_request_items", // ✅ MUST CHANGE
     timestamps: true,
     underscored: true,
   }
 );
 
-export default StockRequest;
+export default StockRequestItem;
