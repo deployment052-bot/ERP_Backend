@@ -459,6 +459,25 @@ export const getReceivedStockRequests = async (req, res) => {
         {
           model: StockRequestItem,
           as: "request_items",
+          include: [
+            {
+              model: Item,
+              as: "item",
+              attributes: [
+                "id",
+                "item_name",
+                "article_code",
+                "sku_code",
+                "category",
+                "metal_type",
+                "purity",
+                "unit",
+                "gross_weight",
+                "net_weight",
+              ],
+              required: false,
+            },
+          ],
         },
         {
           model: StockTransfer,
@@ -474,6 +493,7 @@ export const getReceivedStockRequests = async (req, res) => {
       data: requests,
     });
   } catch (error) {
+    console.error("getReceivedStockRequests error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch received stock requests",
@@ -481,7 +501,6 @@ export const getReceivedStockRequests = async (req, res) => {
     });
   }
 };
-
 
 
 // ==========================================
@@ -504,7 +523,7 @@ export const getStockRequestById = async (req, res) => {
           include: [
             {
               model: StockTransferItem,
-              as: "items",
+              as: "transfer_items",
             },
           ],
         },
@@ -534,6 +553,8 @@ export const getStockRequestById = async (req, res) => {
       data: request,
     });
   } catch (error) {
+    console.error("getStockRequestById error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch stock request details",
@@ -706,10 +727,31 @@ export const approveAndDispatchRequest = async (req, res) => {
 
   try {
     const { requestId } = req.params;
-    const { items, remarks } = req.body;
+    const {
+      items,
+      remarks,
+      driver_name,
+      driver_phone,
+      vehicle_number,
+      tracking_number,
+      pickup_address,
+      delivery_address,
+      expected_delivery_date,
+      expected_delivery_time,
+      additional_notes,
+      driver_photo_url,
+      dispatch_image_url,
+      dispatch_video_url,
+    } = req.body;
+
     const user = req.user;
 
-    if (!Array.isArray(items) || !items.length) {
+    const toNumber = (value) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    if (!Array.isArray(items) || items.length === 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
@@ -717,13 +759,32 @@ export const approveAndDispatchRequest = async (req, res) => {
       });
     }
 
+    if (!driver_name || !driver_phone || !vehicle_number) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Driver name, driver phone, and vehicle number are required",
+      });
+    }
+
+    if (!pickup_address || !delivery_address) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Pickup and delivery address are required",
+      });
+    }
+
+    if (!expected_delivery_date || !expected_delivery_time) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Expected delivery date and time are required",
+      });
+    }
+
+    // 1) request ko bina include ke lock karo
     const request = await StockRequest.findByPk(requestId, {
-      include: [
-        {
-          model: StockRequestItem,
-          as: "request_items",
-        },
-      ],
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
@@ -735,6 +796,13 @@ export const approveAndDispatchRequest = async (req, res) => {
         message: "Stock request not found",
       });
     }
+
+    // 2) request items alag query me lao
+    const requestItems = await StockRequestItem.findAll({
+      where: { request_id: request.id },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
 
     if (Number(request.to_organization_id) !== Number(user.organization_id)) {
       await transaction.rollback();
@@ -755,6 +823,7 @@ export const approveAndDispatchRequest = async (req, res) => {
     const existingTransfer = await StockTransfer.findOne({
       where: { request_id: request.id },
       transaction,
+      lock: transaction.LOCK.UPDATE,
     });
 
     if (existingTransfer) {
@@ -763,6 +832,43 @@ export const approveAndDispatchRequest = async (req, res) => {
         success: false,
         message: "Transfer already created for this request",
       });
+    }
+
+    const requestItemMap = new Map(
+      requestItems.map((x) => [Number(x.item_id), x])
+    );
+
+    for (const row of items) {
+      const item_id = toNumber(row.item_id);
+      const qty = toNumber(row.qty);
+
+      if (!item_id || qty < 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Each item must have valid item_id and qty",
+        });
+      }
+
+      const requestItem = requestItemMap.get(item_id);
+
+      if (!requestItem) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Requested item not found for item_id ${item_id}`,
+        });
+      }
+
+      const requestedQty = toNumber(requestItem.request_qty);
+
+      if (qty > requestedQty) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Approved qty cannot exceed requested qty for item ${item_id}`,
+        });
+      }
     }
 
     const transfer = await StockTransfer.create(
@@ -778,49 +884,55 @@ export const approveAndDispatchRequest = async (req, res) => {
         dispatched_by: user.id,
         created_by: user.id,
         remarks: remarks || null,
+        driver_name: driver_name || null,
+        driver_phone: driver_phone || null,
+        vehicle_number: vehicle_number || null,
+        tracking_number: tracking_number || null,
+        driver_photo_url: driver_photo_url || null,
+        dispatch_image_url: dispatch_image_url || null,
+        dispatch_video_url: dispatch_video_url || null,
+        pickup_address: pickup_address || null,
+        delivery_address: delivery_address || null,
+        expected_delivery_date: expected_delivery_date || null,
+        expected_delivery_time: expected_delivery_time || null,
+        additional_notes: additional_notes || null,
       },
       { transaction }
     );
 
     let totalRequested = 0;
     let totalApproved = 0;
+    let totalWeight = 0;
+    let estimatedValue = 0;
+    let approvedItemsCount = 0;
 
     for (const row of items) {
-      const item_id = Number(row.item_id);
+      const item_id = toNumber(row.item_id);
       const qty = toNumber(row.qty);
       const weight = toNumber(row.weight);
       const rate = toNumber(row.rate);
 
-      if (!item_id || qty <= 0) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: "Each item must have valid item_id and qty",
-        });
-      }
+      const requestItem = requestItemMap.get(item_id);
+      const requestedQty = toNumber(requestItem.request_qty);
 
-      const requestItem = request.request_items.find(
-        (x) => Number(x.item_id) === item_id
-      );
-
-      if (!requestItem) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Requested item not found for item_id ${item_id}`,
-        });
-      }
-
-      if (qty > toNumber(requestItem.qty)) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Approved qty cannot exceed requested qty for item ${item_id}`,
-        });
-      }
-
-      totalRequested += toNumber(requestItem.qty);
+      totalRequested += requestedQty;
       totalApproved += qty;
+
+      if (qty === 0) {
+        await requestItem.update(
+          {
+            approved_qty: 0,
+            approved_weight: 0,
+            status: "rejected",
+          },
+          { transaction }
+        );
+        continue;
+      }
+
+      approvedItemsCount += 1;
+      totalWeight += weight;
+      estimatedValue += weight * rate;
 
       const fromStock = await getOrCreateStock(
         user.organization_id,
@@ -828,18 +940,16 @@ export const approveAndDispatchRequest = async (req, res) => {
         transaction
       );
 
-      const before = {
-        available_qty: fromStock.available_qty,
-        reserved_qty: fromStock.reserved_qty,
-        transit_qty: fromStock.transit_qty,
-        damaged_qty: fromStock.damaged_qty,
-        available_weight: fromStock.available_weight,
-        reserved_weight: fromStock.reserved_weight,
-        transit_weight: fromStock.transit_weight,
-        damaged_weight: fromStock.damaged_weight,
-      };
+      const availableQty = toNumber(fromStock.available_qty);
+      const availableWeight = toNumber(fromStock.available_weight);
+      const reservedQty = toNumber(fromStock.reserved_qty);
+      const reservedWeight = toNumber(fromStock.reserved_weight);
+      const transitQty = toNumber(fromStock.transit_qty);
+      const transitWeight = toNumber(fromStock.transit_weight);
+      const damagedQty = toNumber(fromStock.damaged_qty);
+      const damagedWeight = toNumber(fromStock.damaged_weight);
 
-      if (toNumber(fromStock.available_qty) < qty) {
+      if (availableQty < qty) {
         await transaction.rollback();
         return res.status(400).json({
           success: false,
@@ -847,7 +957,7 @@ export const approveAndDispatchRequest = async (req, res) => {
         });
       }
 
-      if (weight > 0 && toNumber(fromStock.available_weight) < weight) {
+      if (weight > 0 && availableWeight < weight) {
         await transaction.rollback();
         return res.status(400).json({
           success: false,
@@ -871,30 +981,25 @@ export const approveAndDispatchRequest = async (req, res) => {
         {
           approved_qty: qty,
           approved_weight: weight,
+          status: qty < requestedQty ? "partially_approved" : "approved",
         },
         { transaction }
       );
+
+      const newAvailableQty = availableQty - qty;
+      const newAvailableWeight = availableWeight - weight;
+      const newTransitQty = transitQty + qty;
+      const newTransitWeight = transitWeight + weight;
 
       await fromStock.update(
         {
-          available_qty: toNumber(fromStock.available_qty) - qty,
-          available_weight: toNumber(fromStock.available_weight) - weight,
-          transit_qty: toNumber(fromStock.transit_qty) + qty,
-          transit_weight: toNumber(fromStock.transit_weight) + weight,
+          available_qty: newAvailableQty,
+          available_weight: newAvailableWeight,
+          transit_qty: newTransitQty,
+          transit_weight: newTransitWeight,
         },
         { transaction }
       );
-
-      const after = {
-        available_qty: fromStock.available_qty,
-        reserved_qty: fromStock.reserved_qty,
-        transit_qty: fromStock.transit_qty,
-        damaged_qty: fromStock.damaged_qty,
-        available_weight: fromStock.available_weight,
-        reserved_weight: fromStock.reserved_weight,
-        transit_weight: fromStock.transit_weight,
-        damaged_weight: fromStock.damaged_weight,
-      };
 
       await createMovement({
         organization_id: user.organization_id,
@@ -904,46 +1009,109 @@ export const approveAndDispatchRequest = async (req, res) => {
         reference_id: transfer.id,
         qty,
         weight,
-        stockBefore: before,
-        stockAfter: after,
+        stockBefore: {
+          available_qty: availableQty,
+          reserved_qty: reservedQty,
+          transit_qty: transitQty,
+          damaged_qty: damagedQty,
+          available_weight: availableWeight,
+          reserved_weight: reservedWeight,
+          transit_weight: transitWeight,
+          damaged_weight: damagedWeight,
+        },
+        stockAfter: {
+          available_qty: newAvailableQty,
+          reserved_qty: reservedQty,
+          transit_qty: newTransitQty,
+          damaged_qty: damagedQty,
+          available_weight: newAvailableWeight,
+          reserved_weight: reservedWeight,
+          transit_weight: newTransitWeight,
+          damaged_weight: damagedWeight,
+        },
         remarks: `Dispatched via ${transfer.transfer_no}`,
         created_by: user.id,
         transaction,
       });
     }
 
-    const finalStatus =
-      totalApproved < totalRequested ? "partially_approved" : "approved";
+    let finalStatus = "approved";
+    if (approvedItemsCount === 0) {
+      finalStatus = "rejected";
+    } else if (totalApproved < totalRequested) {
+      finalStatus = "partially_approved";
+    }
 
     await request.update(
       {
         status: finalStatus,
+        approved_by: user.id,
+        approved_at: new Date(),
       },
       { transaction }
     );
 
-    await createActivity({
-      user_id: user.id,
-      action: "stock_request_approved_dispatch",
-      title: "Stock request approved and dispatched",
-      description: `Request approved and transfer ${transfer.transfer_no} created`,
-      meta: {
-        request_id: request.id,
-        transfer_id: transfer.id,
-        transfer_no: transfer.transfer_no,
+    await Task.update(
+      { status: finalStatus },
+      {
+        where: {
+          task_type: "stock_request_approval",
+          reference_id: request.id,
+        },
+        transaction,
+      }
+    );
+
+    await SystemActivity.create(
+      {
+        title:
+          finalStatus === "approved"
+            ? "Stock request approved and dispatched"
+            : finalStatus === "partially_approved"
+            ? "Stock request partially approved and dispatched"
+            : "Stock request rejected",
+        description:
+          finalStatus === "rejected"
+            ? `Request ${request.request_no} was rejected by receiving organization`
+            : `Request ${request.request_no} processed via ${transfer.transfer_no}`,
+        activity_type: "stock_request_dispatch",
+        module_name: "stock_transfer",
+        reference_id: transfer.id,
+        reference_no: transfer.transfer_no,
+        district_code: request.to_district_code || null,
+        store_code: request.from_store_code || null,
+        store_name: request.from_store_name || null,
+        created_by: user.id,
+        created_at: new Date(),
       },
-      transaction,
-    });
+      { transaction }
+    );
 
     await transaction.commit();
 
     return res.status(200).json({
       success: true,
-      message: "Request approved and stock dispatched successfully",
-      data: transfer,
+      message:
+        finalStatus === "rejected"
+          ? "Request rejected successfully"
+          : "Request approved and stock dispatched successfully",
+      data: {
+        transfer,
+        summary: {
+          request_id: request.id,
+          request_no: request.request_no,
+          total_requested: totalRequested,
+          total_approved: totalApproved,
+          total_weight: totalWeight,
+          estimated_value: estimatedValue,
+          final_status: finalStatus,
+        },
+      },
     });
   } catch (error) {
     await transaction.rollback();
+    console.error("approveAndDispatchRequest error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to approve and dispatch request",
