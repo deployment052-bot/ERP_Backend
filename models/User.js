@@ -1,6 +1,7 @@
+// models/User.js
+
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
-import e from "express";
 
 const User = sequelize.define(
   "User",
@@ -30,6 +31,7 @@ const User = sequelize.define(
       type: DataTypes.STRING,
       allowNull: false,
       unique: true,
+      field:"name",
     },
 
     phoneNumber: {
@@ -91,10 +93,30 @@ const User = sequelize.define(
       defaultValue: true,
       field: "is_active",
     },
+
+
+    resetOtp: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: "reset_otp",
+    },
+
+    resetOtpExpire: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "reset_otp_expire",
+    },
+
+    otpAttempts: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      field: "otp_attempts",
+    },
   },
   {
     tableName: "users",
-    timestamps: false,
+    timestamps: true, 
   }
 );
+
 export default User;

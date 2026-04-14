@@ -9,12 +9,10 @@ const Customer = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
-
     name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-
     phone: {
       type: DataTypes.STRING,
       validate: {
@@ -22,16 +20,20 @@ const Customer = sequelize.define(
         len: [10, 15],
       },
     },
-
     address: {
       type: DataTypes.TEXT,
     },
-
+    
+    pan_card_number: {
+      type: DataTypes.STRING,
+    },
+    pincode: {
+      type: DataTypes.STRING,
+    },
     organization_id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
-
     store_code: {
       type: DataTypes.STRING,
     },
@@ -42,6 +44,7 @@ const Customer = sequelize.define(
     indexes: [
       { fields: ["organization_id"] },
       { fields: ["phone"] },
+      { fields: ["store_code"] },
     ],
   }
 );

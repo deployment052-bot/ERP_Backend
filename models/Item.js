@@ -31,7 +31,7 @@ const Item = sequelize.define(
       allowNull: false,
     },
 
-    category: {
+  category: {
       type: DataTypes.STRING,
       allowNull: false,
     },

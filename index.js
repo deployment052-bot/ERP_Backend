@@ -10,11 +10,15 @@ import userRoutes from "./routes/userRoutes.js";
 import goldRoutes from "./routes/goldRoutes.js";
 import billingRoutes from "./routes/billingRoutes.js";
 import sheetRoutes from "./routes/sheet.routes.js";
-
+import reportRoutes from "./routes/reportRoutes.js";
+import swaggerSpec from "./config/swagger.js";
+import customerRoutes from "./routes/customerRoutes.js";
+import swaggerUi from "swagger-ui-express";
 dotenv.config();
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 //  Routes
 app.use("/api/auth", authRoutes);
@@ -26,6 +30,9 @@ app.use("/api/users", userRoutes);
 app.use("/api/gold", goldRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api", sheetRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use("/api/customers", customerRoutes);
 
 const startServer = async () => {
   try {
@@ -35,6 +42,7 @@ const startServer = async () => {
     await sequelize.sync();
     app.listen(process.env.PORT || 5000, () => {
       console.log(`Server running on port ${process.env.PORT || 5000}`);
+      console.log("Swagger URL: http://localhost:5000/api-docs");
     });
   } catch (error) {
     console.error("Error:", error);

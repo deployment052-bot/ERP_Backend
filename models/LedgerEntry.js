@@ -9,20 +9,15 @@ const LedgerEntry = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
-
     customer_id: DataTypes.INTEGER,
-
     type: {
       type: DataTypes.ENUM("DEBIT", "CREDIT"),
     },
-
-    amount: DataTypes.FLOAT,
-
-    reference_type: DataTypes.STRING, // INVOICE / PAYMENT
-
+    amount: DataTypes.DECIMAL(15, 2), 
+    reference_type: DataTypes.STRING, 
     reference_id: DataTypes.INTEGER,
-
     description: DataTypes.STRING,
+    organization_id: DataTypes.INTEGER,  
   },
   {
     tableName: "ledger_entries",

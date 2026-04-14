@@ -1,60 +1,48 @@
 import express from "express";
-const router = express.Router();
 
-import { createCustomer } from "../controllers/customerController.js";
+// Import all your screenshot controllers
+import {
+  createCustomer,
+  searchCustomers,
+  getCustomer,
+} from "../controllers/customerController.js";
+
 import {
   createInvoice,
-  getCustomerInvoices,
   getInvoiceDetail,
+  getCustomerInvoices,
+  getPendingInvoices,
 } from "../controllers/invoiceController.js";
+
 import {
   createPayment,
-  getPayments,
+  getPaymentsByInvoice,
 } from "../controllers/paymentController.js";
-import { getLedger } from "../controllers/ledgerController.js";
 
-/**
- * @route POST /api/customer
- * @desc Create a new customer
- * @access Public
- */
+import {
+  getLedger,
+  getCustomerLedgerDetail,
+} from "../controllers/ledgerController.js";
+
+const router = express.Router();
+
+// ==================== CUSTOMER ROUTES ====================
 router.post("/customer", createCustomer);
+router.get("/customer/search", searchCustomers);
+router.get("/customer/:id", getCustomer);
 
-/**
- * @route POST /api/invoice
- * @desc Create an invoice with items
- * @access Public
- */
+// ==================== INVOICE ROUTES ====================
 router.post("/invoice", createInvoice);
-/**
- * @route GET /api/invoice/:customer_id
- * @desc Get all invoices for a customer
- * @access Public
- */
-router.get("/invoice/:customer_id", getCustomerInvoices);
-
-/**
- * @route POST /api/payments
- * @desc Create a payment for an invoice
- * @access Public
- */
-router.post("/payment", createPayment);
-/**
- * @route GET /api/payments/:invoice_id
- * @desc Get all payments for an invoice
- * @access Public
- */
-router.get("/payment/:invoice_id", getPayments); 
-/**
- * @route GET /api/ledger
- * @desc Get ledger entries
- * @access Public
- */
-router.get("/", getLedger);
-/**
- * @route GET /api/invoice/detail/:invoice_id
- * @desc Get detailed invoice info (items + payments)
- * @access Public
- */
 router.get("/invoice/detail/:invoice_id", getInvoiceDetail);
+router.get("/invoice/customer/:customer_id", getCustomerInvoices);
+router.get("/invoice/pending", getPendingInvoices);
+
+// ==================== PAYMENT ROUTES ====================
+router.post("/payment", createPayment);
+router.get("/payment/invoice/:invoice_id", getPaymentsByInvoice);
+
+// ==================== LEDGER ROUTES ====================
+router.get("/ledger", getLedger);
+router.get("/ledger/customer/:customer_id", getCustomerLedgerDetail);
+
 export default router;

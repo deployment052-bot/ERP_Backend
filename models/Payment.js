@@ -9,30 +9,29 @@ const Payment = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
-
     invoice_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
-
     amount: {
       type: DataTypes.DECIMAL(12, 2),
       allowNull: false,
     },
-
     payment_method: {
-      type: DataTypes.STRING,
+      type: DataTypes.ENUM("CASH", "BANK_TRANSFER", "CARD", "UPI", "CHEQUE"),
       defaultValue: "CASH",
     },
-
-    txn_id: {
-      type: DataTypes.STRING,
+    financier: {
+      type: DataTypes.ENUM("Self", "Financier"),
+      defaultValue: "Self",
     },
-
+    txn_id: DataTypes.STRING,
     payment_date: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
     },
+    operator: DataTypes.STRING,  
+    organization_id: DataTypes.INTEGER,
   },
   {
     tableName: "payments",
