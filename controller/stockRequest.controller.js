@@ -1,17 +1,20 @@
+import fs from "fs";
 import sequelize from "../config/db.js";
 import { Op } from "sequelize";
-import Store from "../model/Store.js"
+import Store from "../model/Store.js";
 import StockTransfer from "../model/stockTransfer.js";
 import StockTransferItem from "../model/stockTransferItem.js";
 import Stock from "../model/stockrecord.js";
 import StockMovement from "../model/stockmovement.js";
 import ActivityLog from "../model/activityLog.js";
-import SystemActivity from "../model/systemActivity.js"
+import SystemActivity from "../model/systemActivity.js";
 import Item from "../model/item.js";
-import Task from "../model/task.js"
+import Task from "../model/task.js";
 import StockRequest from "../model/StockRequest.js";
 import StockRequestItem from "../model/stockRequestItem.js";
 import District from "../model/District.js";
+import cloudinary from "../utils/cloudinary.js";
+
 const generateTransferNo = () => {
   return `TRF-${Date.now()}`;
 };
@@ -20,7 +23,10 @@ const generateRequestNo = () => {
   return `REQ-${Date.now()}`;
 };
 
-const toNumber = (val) => Number(val || 0);
+const toNumber = (val) => {
+  const num = Number(val);
+  return Number.isFinite(num) ? num : 0;
+};
 
 const getOrCreateStock = async (organization_id, item_id, transaction) => {
   let stock = await Stock.findOne({
@@ -125,6 +131,104 @@ const createActivity = async ({
     },
     { transaction }
   );
+};
+
+const safeUnlink = (filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error("File delete error:", error.message);
+  }
+};
+
+const uploadToCloudinary = async (filePath, folder, resourceType = "image") => {
+  return cloudinary.uploader.upload(filePath, {
+    folder,
+    resource_type: resourceType,
+  });
+};
+
+const tryJsonParse = (value) => {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
+  }
+};
+
+const normalizeItemRow = (row = {}) => {
+  return {
+    item_id: toNumber(row.item_id ?? row.id ?? row.itemId),
+    qty: toNumber(row.qty ?? row.approved_qty ?? row.approve_qty ?? row.quantity),
+    weight: toNumber(row.weight ?? row.approved_weight ?? row.total_weight),
+    rate: toNumber(row.rate ?? row.item_rate ?? row.price),
+    remarks: row.remarks || row.note || null,
+  };
+};
+
+const parseItemsFromBody = (body) => {
+  // 1) direct array
+  if (Array.isArray(body.items)) {
+    return body.items.map(normalizeItemRow);
+  }
+
+  if (Array.isArray(body.approved_items)) {
+    return body.approved_items.map(normalizeItemRow);
+  }
+
+  // 2) JSON string in items / approved_items
+  if (typeof body.items === "string" && body.items.trim()) {
+    const parsed = tryJsonParse(body.items);
+    if (Array.isArray(parsed)) {
+      return parsed.map(normalizeItemRow);
+    }
+  }
+
+  if (typeof body.approved_items === "string" && body.approved_items.trim()) {
+    const parsed = tryJsonParse(body.approved_items);
+    if (Array.isArray(parsed)) {
+      return parsed.map(normalizeItemRow);
+    }
+  }
+
+  // 3) multipart style: items[0][item_id] OR items[0].item_id
+  const grouped = {};
+
+  for (const [key, value] of Object.entries(body)) {
+    let match = key.match(/^items\[(\d+)\]\[(\w+)\]$/);
+    if (!match) {
+      match = key.match(/^items\[(\d+)\]\.(\w+)$/);
+    }
+    if (!match) {
+      match = key.match(/^approved_items\[(\d+)\]\[(\w+)\]$/);
+    }
+    if (!match) {
+      match = key.match(/^approved_items\[(\d+)\]\.(\w+)$/);
+    }
+
+    if (match) {
+      const index = Number(match[1]);
+      const field = match[2];
+
+      if (!grouped[index]) {
+        grouped[index] = {};
+      }
+      grouped[index][field] = value;
+    }
+  }
+
+  const result = Object.keys(grouped)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((idx) => normalizeItemRow(grouped[idx]))
+    .filter((row) => row.item_id);
+
+  if (result.length > 0) {
+    return result;
+  }
+
+  return [];
 };
 
 export const getAvailableStockForRequest = async (req, res) => {
@@ -724,11 +828,11 @@ export const rejectStockRequest = async (req, res) => {
 // ==========================================
 export const approveAndDispatchRequest = async (req, res) => {
   const transaction = await sequelize.transaction();
+  const uploadedLocalPaths = [];
 
   try {
     const { requestId } = req.params;
     const {
-      items,
       remarks,
       driver_name,
       driver_phone,
@@ -739,23 +843,26 @@ export const approveAndDispatchRequest = async (req, res) => {
       expected_delivery_date,
       expected_delivery_time,
       additional_notes,
-      driver_photo_url,
-      dispatch_image_url,
-      dispatch_video_url,
     } = req.body;
 
     const user = req.user;
+    const parsedItems = parseItemsFromBody(req.body);
 
-    const toNumber = (value) => {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : 0;
-    };
+    console.log("approveAndDispatchRequest req.body keys:", Object.keys(req.body || {}));
+    console.log("approveAndDispatchRequest raw items:", req.body?.items);
+    console.log("approveAndDispatchRequest parsedItems:", parsedItems);
+    console.log("approveAndDispatchRequest files:", {
+      driver_photo: req.files?.driver_photo?.length || 0,
+      dispatch_images: req.files?.dispatch_images?.length || 0,
+      dispatch_video: req.files?.dispatch_video?.length || 0,
+    });
 
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Approved items are required",
+        message:
+          "Approved items are required. Send items as JSON string or items[0][item_id], items[0][qty] format.",
       });
     }
 
@@ -783,7 +890,24 @@ export const approveAndDispatchRequest = async (req, res) => {
       });
     }
 
-    // 1) request ko bina include ke lock karo
+    const driverPhotoFile = req.files?.driver_photo?.[0] || null;
+    const dispatchImageFiles = req.files?.dispatch_images || [];
+    const dispatchVideoFile = req.files?.dispatch_video?.[0] || null;
+
+    if (dispatchImageFiles.length > 3) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Maximum 3 dispatch images allowed",
+      });
+    }
+
+    if (driverPhotoFile?.path) uploadedLocalPaths.push(driverPhotoFile.path);
+    for (const file of dispatchImageFiles) {
+      if (file?.path) uploadedLocalPaths.push(file.path);
+    }
+    if (dispatchVideoFile?.path) uploadedLocalPaths.push(dispatchVideoFile.path);
+
     const request = await StockRequest.findByPk(requestId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
@@ -797,7 +921,6 @@ export const approveAndDispatchRequest = async (req, res) => {
       });
     }
 
-    // 2) request items alag query me lao
     const requestItems = await StockRequestItem.findAll({
       where: { request_id: request.id },
       transaction,
@@ -838,7 +961,7 @@ export const approveAndDispatchRequest = async (req, res) => {
       requestItems.map((x) => [Number(x.item_id), x])
     );
 
-    for (const row of items) {
+    for (const row of parsedItems) {
       const item_id = toNumber(row.item_id);
       const qty = toNumber(row.qty);
 
@@ -871,6 +994,39 @@ export const approveAndDispatchRequest = async (req, res) => {
       }
     }
 
+    let driver_photo_url = null;
+    let dispatch_image_urls = [];
+    let dispatch_video_url = null;
+
+    if (driverPhotoFile?.path) {
+      const uploadedDriverPhoto = await uploadToCloudinary(
+        driverPhotoFile.path,
+        "stock-transfer/driver-photo",
+        "image"
+      );
+      driver_photo_url = uploadedDriverPhoto.secure_url;
+    }
+
+    if (dispatchImageFiles.length > 0) {
+      for (const file of dispatchImageFiles) {
+        const uploadedImage = await uploadToCloudinary(
+          file.path,
+          "stock-transfer/dispatch-images",
+          "image"
+        );
+        dispatch_image_urls.push(uploadedImage.secure_url);
+      }
+    }
+
+    if (dispatchVideoFile?.path) {
+      const uploadedVideo = await uploadToCloudinary(
+        dispatchVideoFile.path,
+        "stock-transfer/dispatch-video",
+        "video"
+      );
+      dispatch_video_url = uploadedVideo.secure_url;
+    }
+
     const transfer = await StockTransfer.create(
       {
         transfer_no: generateTransferNo(),
@@ -889,7 +1045,10 @@ export const approveAndDispatchRequest = async (req, res) => {
         vehicle_number: vehicle_number || null,
         tracking_number: tracking_number || null,
         driver_photo_url: driver_photo_url || null,
-        dispatch_image_url: dispatch_image_url || null,
+        dispatch_image_url:
+          dispatch_image_urls.length > 0
+            ? JSON.stringify(dispatch_image_urls)
+            : null,
         dispatch_video_url: dispatch_video_url || null,
         pickup_address: pickup_address || null,
         delivery_address: delivery_address || null,
@@ -906,7 +1065,7 @@ export const approveAndDispatchRequest = async (req, res) => {
     let estimatedValue = 0;
     let approvedItemsCount = 0;
 
-    for (const row of items) {
+    for (const row of parsedItems) {
       const item_id = toNumber(row.item_id);
       const qty = toNumber(row.qty);
       const weight = toNumber(row.weight);
@@ -1087,7 +1246,37 @@ export const approveAndDispatchRequest = async (req, res) => {
       { transaction }
     );
 
+    await createActivity({
+      user_id: user.id,
+      action: "stock_request_dispatch",
+      title:
+        finalStatus === "approved"
+          ? "Stock request approved and dispatched"
+          : finalStatus === "partially_approved"
+          ? "Stock request partially approved and dispatched"
+          : "Stock request rejected",
+      description:
+        finalStatus === "rejected"
+          ? `Request ${request.request_no} rejected`
+          : `Request ${request.request_no} dispatched via ${transfer.transfer_no}`,
+      meta: {
+        request_id: request.id,
+        request_no: request.request_no,
+        transfer_id: transfer.id,
+        transfer_no: transfer.transfer_no,
+        final_status: finalStatus,
+        driver_photo_url,
+        dispatch_image_urls,
+        dispatch_video_url,
+      },
+      transaction,
+    });
+
     await transaction.commit();
+
+    for (const filePath of uploadedLocalPaths) {
+      safeUnlink(filePath);
+    }
 
     return res.status(200).json({
       success: true,
@@ -1096,7 +1285,15 @@ export const approveAndDispatchRequest = async (req, res) => {
           ? "Request rejected successfully"
           : "Request approved and stock dispatched successfully",
       data: {
-        transfer,
+        transfer: {
+          ...transfer.toJSON(),
+          dispatch_image_url: dispatch_image_urls,
+        },
+        uploaded_files: {
+          driver_photo_url,
+          dispatch_image_urls,
+          dispatch_video_url,
+        },
         summary: {
           request_id: request.id,
           request_no: request.request_no,
@@ -1110,6 +1307,11 @@ export const approveAndDispatchRequest = async (req, res) => {
     });
   } catch (error) {
     await transaction.rollback();
+
+    for (const filePath of uploadedLocalPaths) {
+      safeUnlink(filePath);
+    }
+
     console.error("approveAndDispatchRequest error:", error);
 
     return res.status(500).json({
@@ -1119,7 +1321,6 @@ export const approveAndDispatchRequest = async (req, res) => {
     });
   }
 };
-
 
 
 // ==========================================

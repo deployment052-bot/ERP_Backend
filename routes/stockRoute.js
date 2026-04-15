@@ -1,20 +1,26 @@
 import express from "express";
 import {
-  getStockList,
+  getRetailInventory,
+  // getRetailInventory,
   getSingleStock,
   updateStockStatus,
   stockSummary,
   addStockIn,
-  getStockItemsByCategory
+  getStockItemsByCategory,getDistrictInventory
 } from "../controller/stock.controller.js";
 import { auth } from "../middlewares/authMiddleware.js"
 
 const router = express.Router();
-
-router.get("/list", auth, getStockList);
+//esme retail wala ka data aatega
+router.get("/list", auth, getRetailInventory);
+//this api for to the ditrict inventory 
+router.get("/getdistrict",auth,getDistrictInventory)
+//this is for stock summary
 router.get("/summary", auth, stockSummary);
 router.get("/:id", auth, getSingleStock);
 router.put("/:id/status", auth, updateStockStatus);
 router.post("/stock-in", auth, addStockIn);
+
+//this is for finding the by category according data 
 router.get("/category/:category", auth, getStockItemsByCategory);
 export default router;

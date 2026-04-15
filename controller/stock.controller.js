@@ -9,7 +9,6 @@ import { createActivityLog } from "../service/activity.service.js";
 /* =========================================================
    HELPERS
 ========================================================= */
-
 const hasAttr = (model, attr) => !!model?.rawAttributes?.[attr];
 
 const pickAttr = (model, attrs = []) => {
@@ -22,32 +21,10 @@ const pickAttr = (model, attrs = []) => {
 const getCreatedKey = (model) =>
   pickAttr(model, ["created_at", "createdAt"]) || "id";
 
-const getOrganizationFilter = (user, requestedOrgId = null) => {
-  // super_admin can access any org
-  if (user?.role === "super_admin") {
-    return requestedOrgId ? Number(requestedOrgId) : null;
-  }
-
-  // manager / tl / staff only their own organization
-  return user?.organization_id || null;
-};
-
-/* =========================================================
-   GET STOCK LIST
-========================================================= */
-
-export const getStockList = async (req, res) => {
+export const getRetailInventory = async (req, res) => {
   try {
     const user = req.user;
     const { search, category, metal_type, organization_id } = req.query;
-
-    let orgId = null;
-
-    if (user?.role === "super_admin") {
-      orgId = organization_id ? Number(organization_id) : null;
-    } else {
-      orgId = user?.organization_id ? Number(user.organization_id) : null;
-    }
 
     if (!user?.role) {
       return res.status(401).json({
@@ -56,21 +33,59 @@ export const getStockList = async (req, res) => {
       });
     }
 
-    if (user.role !== "super_admin" && !orgId) {
-      return res.status(403).json({
-        success: false,
-        message: "Organization not found for this user",
-      });
-    }
-
     const itemWhere = {};
     const stockWhere = {};
 
-    if (orgId) {
-      itemWhere.organization_id = orgId;
-      stockWhere.organization_id = orgId;
+    const level = String(user.organization_level || "").toLowerCase();
+    const role = String(user.role || "").toLowerCase();
+
+    // =================================================
+    // SUPER ADMIN
+    // =================================================
+    if (role === "super_admin") {
+      if (organization_id) {
+        itemWhere.organization_id = Number(organization_id);
+      }
     }
 
+    // =================================================
+    // DISTRICT USER -> District inventory only
+    // =================================================
+    else if (level === "district") {
+      itemWhere.organization_id = Number(user.organization_id);
+
+      if (user.store_code) {
+        itemWhere.storeCode = user.store_code;
+      }
+    }
+
+    // =================================================
+    // RETAIL / STORE USER -> Only own store inventory
+    // =================================================
+    else if (level === "retail" || level === "store") {
+      if (!user.store_code) {
+        return res.status(403).json({
+          success: false,
+          message: "Store code not found for this user",
+        });
+      }
+
+      itemWhere.storeCode = user.store_code;
+    }
+
+    // =================================================
+    // OTHER USERS
+    // =================================================
+    else {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid user level",
+      });
+    }
+
+    // =================================================
+    // FILTERS
+    // =================================================
     if (category) itemWhere.category = category;
     if (metal_type) itemWhere.metal_type = metal_type;
 
@@ -80,44 +95,44 @@ export const getStockList = async (req, res) => {
         { article_code: { [Op.iLike]: `%${search}%` } },
         { item_name: { [Op.iLike]: `%${search}%` } },
         { purity: { [Op.iLike]: `%${search}%` } },
+        { sku_code: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
+    // =================================================
+    // FETCH DATA
+    // =================================================
     const items = await Item.findAll({
       attributes: [
         "id",
         "category",
         "article_code",
+        "sku_code",
+        "item_name",
         "sale_rate",
         "making_charge",
         "purity",
         "net_weight",
         "stone_weight",
         "gross_weight",
+        "storeCode",
         "organization_id",
       ],
       where: itemWhere,
-      include: [
-        {
-          model: Stock,
-          as: "stocks",
-          required: false,
-          attributes: ["id", "organization_id", "available_qty"],
-          where: Object.keys(stockWhere).length ? stockWhere : undefined,
-        },
-      ],
       order: [["id", "DESC"]],
     });
 
+    // =================================================
+    // GROUP CATEGORY
+    // =================================================
     const grouped = {};
 
     for (const item of items) {
-      const stock = Array.isArray(item.stocks) ? item.stocks[0] : null;
-      const categoryKey = item.category || "Other";
+      const key = item.category || "Other";
 
-      if (!grouped[categoryKey]) {
-        grouped[categoryKey] = {
-          category: categoryKey,
+      if (!grouped[key]) {
+        grouped[key] = {
+          category: key,
           code: item.article_code || "-",
           quantity: 0,
           selling_price: Number(item.sale_rate || 0),
@@ -130,15 +145,14 @@ export const getStockList = async (req, res) => {
         };
       }
 
-      grouped[categoryKey].quantity += Number(stock?.available_qty || 0);
-      grouped[categoryKey].net_weight += Number(item.net_weight || 0);
-      grouped[categoryKey].stone_weight += Number(item.stone_weight || 0);
-      grouped[categoryKey].gross_weight += Number(item.gross_weight || 0);
+      grouped[key].quantity += 1;
+      grouped[key].net_weight += Number(item.net_weight || 0);
+      grouped[key].stone_weight += Number(item.stone_weight || 0);
+      grouped[key].gross_weight += Number(item.gross_weight || 0);
     }
 
     const data = Object.values(grouped).map((row) => ({
       ...row,
-      quantity: Number(row.quantity.toFixed(3)),
       net_weight: Number(row.net_weight.toFixed(3)),
       stone_weight: Number(row.stone_weight.toFixed(3)),
       gross_weight: Number(row.gross_weight.toFixed(3)),
@@ -146,8 +160,7 @@ export const getStockList = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Branch-wise stock fetched successfully",
-      organization_id: orgId,
+      message: "Stock list fetched successfully",
       count: data.length,
       data,
     });
@@ -161,7 +174,109 @@ export const getStockList = async (req, res) => {
   }
 };
 
+export const getDistrictInventory = async (req, res) => {
+  try {
+    const user = req.user;
+    const { search, category, metal_type } = req.query;
 
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    if (
+      user.role !== "district_manager" &&
+      String(user.organization_level || "").toLowerCase() !== "district"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Only district users can access this inventory",
+      });
+    }
+
+    const districtOrgId = Number(user.organization_id);
+    const districtCode = user.store_code || user.storeCode;
+
+    if (!districtOrgId || !districtCode) {
+      return res.status(400).json({
+        success: false,
+        message: "District organization id or code not found",
+      });
+    }
+
+    const whereClause = {
+      organization_id: districtOrgId,
+      storeCode: districtCode,
+    };
+
+    if (category) {
+      whereClause.category = category;
+    }
+
+    if (metal_type) {
+      whereClause.metal_type = metal_type;
+    }
+
+    if (search) {
+      whereClause[Op.or] = [
+        { article_code: { [Op.iLike]: `%${search}%` } },
+        { sku_code: { [Op.iLike]: `%${search}%` } },
+        { item_name: { [Op.iLike]: `%${search}%` } },
+        { category: { [Op.iLike]: `%${search}%` } },
+        { purity: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const items = await Item.findAll({
+      where: whereClause,
+      attributes: [
+        "id",
+        "article_code",
+        "sku_code",
+        "item_name",
+        "metal_type",
+        "category",
+        "details",
+        "purity",
+        "gross_weight",
+        "net_weight",
+        "stone_weight",
+        "stone_amount",
+        "making_charge",
+        "purchase_rate",
+        "sale_rate",
+        "hsn_code",
+        "unit",
+        "current_status",
+        "store_id",
+        "storeCode",
+        "storeName",
+        "organization_id",
+        "createdAt",
+        "updatedAt",
+      ],
+      order: [["id", "DESC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "District inventory fetched successfully",
+      organization_id: districtOrgId,
+      store_code: districtCode,
+      count: items.length,
+      data: items,
+    });
+  } catch (error) {
+    console.error("getDistrictInventory error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch district inventory",
+      error: error.message,
+    });
+  }
+};
 /* =========================================================
    STOCK OF ALL CATOGARY
 ========================================================= */
