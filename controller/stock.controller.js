@@ -45,11 +45,12 @@ export const getRetailInventory = async (req, res) => {
     if (role === "super_admin") {
       if (organization_id) {
         itemWhere.organization_id = Number(organization_id);
+        stockWhere.organization_id = Number(organization_id);
       }
     }
 
     // =================================================
-    // DISTRICT USER -> District inventory only
+    // DISTRICT USER
     // =================================================
     else if (level === "district") {
       itemWhere.organization_id = Number(user.organization_id);
@@ -57,10 +58,12 @@ export const getRetailInventory = async (req, res) => {
       if (user.store_code) {
         itemWhere.storeCode = user.store_code;
       }
+
+      stockWhere.organization_id = Number(user.organization_id);
     }
 
     // =================================================
-    // RETAIL / STORE USER -> Only own store inventory
+    // RETAIL / STORE USER
     // =================================================
     else if (level === "retail" || level === "store") {
       if (!user.store_code) {
@@ -71,6 +74,7 @@ export const getRetailInventory = async (req, res) => {
       }
 
       itemWhere.storeCode = user.store_code;
+      stockWhere.organization_id = Number(user.organization_id);
     }
 
     // =================================================
@@ -100,7 +104,7 @@ export const getRetailInventory = async (req, res) => {
     }
 
     // =================================================
-    // FETCH DATA
+    // FETCH ITEMS WITH STOCK
     // =================================================
     const items = await Item.findAll({
       attributes: [
@@ -117,18 +121,71 @@ export const getRetailInventory = async (req, res) => {
         "gross_weight",
         "storeCode",
         "organization_id",
+        "current_status",
       ],
       where: itemWhere,
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+          attributes: [
+            "id",
+            "organization_id",
+            "available_qty",
+            "available_weight",
+            "reserved_qty",
+            "reserved_weight",
+            "transit_qty",
+            "transit_weight",
+            "damaged_qty",
+            "damaged_weight",
+            "dead_qty",
+            "dead_weight",
+          ],
+          where: Object.keys(stockWhere).length ? stockWhere : undefined,
+        },
+      ],
       order: [["id", "DESC"]],
     });
 
     // =================================================
-    // GROUP CATEGORY
+    // SUMMARY CARDS
+    // =================================================
+    let totalStockItems = 0;
+    let deadStockItems = 0;
+    let lowStockItems = 0;
+    let transitGoods = 0;
+
+    // low stock threshold
+    const LOW_STOCK_THRESHOLD = 5;
+
+    // =================================================
+    // GROUP CATEGORY TABLE
     // =================================================
     const grouped = {};
 
     for (const item of items) {
       const key = item.category || "Other";
+      const stocks = Array.isArray(item.stocks) ? item.stocks : [];
+
+      let itemAvailableQty = 0;
+      let itemTransitQty = 0;
+      let itemDeadQty = 0;
+
+      for (const stock of stocks) {
+        itemAvailableQty += Number(stock.available_qty || 0);
+        itemTransitQty += Number(stock.transit_qty || 0);
+        itemDeadQty += Number(stock.dead_qty || 0);
+      }
+
+      totalStockItems += itemAvailableQty;
+      transitGoods += itemTransitQty;
+      deadStockItems += itemDeadQty;
+
+      if (itemAvailableQty > 0 && itemAvailableQty <= LOW_STOCK_THRESHOLD) {
+        lowStockItems += 1;
+      }
 
       if (!grouped[key]) {
         grouped[key] = {
@@ -141,11 +198,11 @@ export const getRetailInventory = async (req, res) => {
           net_weight: 0,
           stone_weight: 0,
           gross_weight: 0,
-          action: "View",
+          action: "View Details",
         };
       }
 
-      grouped[key].quantity += 1;
+      grouped[key].quantity += itemAvailableQty;
       grouped[key].net_weight += Number(item.net_weight || 0);
       grouped[key].stone_weight += Number(item.stone_weight || 0);
       grouped[key].gross_weight += Number(item.gross_weight || 0);
@@ -153,6 +210,7 @@ export const getRetailInventory = async (req, res) => {
 
     const data = Object.values(grouped).map((row) => ({
       ...row,
+      quantity: Number(row.quantity.toFixed(3)),
       net_weight: Number(row.net_weight.toFixed(3)),
       stone_weight: Number(row.stone_weight.toFixed(3)),
       gross_weight: Number(row.gross_weight.toFixed(3)),
@@ -160,15 +218,21 @@ export const getRetailInventory = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Stock list fetched successfully",
+      message: "Retail inventory fetched successfully",
+      summary: {
+        total_stock_items: Number(totalStockItems.toFixed(3)),
+        dead_stock_items: Number(deadStockItems.toFixed(3)),
+        low_stock_items: lowStockItems,
+        transit_goods: Number(transitGoods.toFixed(3)),
+      },
       count: data.length,
       data,
     });
   } catch (error) {
-    console.error("getStockList error:", error);
+    console.error("getRetailInventory error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch stock list",
+      message: "Failed to fetch retail inventory",
       error: error.message,
     });
   }
@@ -257,16 +321,106 @@ export const getDistrictInventory = async (req, res) => {
         "createdAt",
         "updatedAt",
       ],
+      include: [
+        {
+          model: Stock,
+          as: "stocks",
+          required: false,
+          attributes: [
+            "id",
+            "organization_id",
+            "available_qty",
+            "available_weight",
+            "reserved_qty",
+            "reserved_weight",
+            "transit_qty",
+            "transit_weight",
+            "damaged_qty",
+            "damaged_weight",
+            "dead_qty",
+            "dead_weight",
+          ],
+          where: {
+            organization_id: districtOrgId,
+          },
+        },
+      ],
       order: [["id", "DESC"]],
     });
+
+    let totalStockItems = 0;
+    let deadStockItems = 0;
+    let lowStockItems = 0;
+    let transitGoods = 0;
+
+    const LOW_STOCK_THRESHOLD = 5;
+
+    const grouped = {};
+
+    for (const item of items) {
+      const key = item.category || "Other";
+      const stocks = Array.isArray(item.stocks) ? item.stocks : [];
+
+      let itemAvailableQty = 0;
+      let itemTransitQty = 0;
+      let itemDeadQty = 0;
+
+      for (const stock of stocks) {
+        itemAvailableQty += Number(stock.available_qty || 0);
+        itemTransitQty += Number(stock.transit_qty || 0);
+        itemDeadQty += Number(stock.dead_qty || 0);
+      }
+
+      totalStockItems += itemAvailableQty;
+      transitGoods += itemTransitQty;
+      deadStockItems += itemDeadQty;
+
+      if (itemAvailableQty > 0 && itemAvailableQty <= LOW_STOCK_THRESHOLD) {
+        lowStockItems += 1;
+      }
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          category: key,
+          code: item.article_code || "-",
+          quantity: 0,
+          selling_price: Number(item.sale_rate || 0),
+          making_charge: Number(item.making_charge || 0),
+          purity: item.purity || "-",
+          net_weight: 0,
+          stone_weight: 0,
+          gross_weight: 0,
+          action: "View Details",
+        };
+      }
+
+      grouped[key].quantity += itemAvailableQty;
+      grouped[key].net_weight += Number(item.net_weight || 0);
+      grouped[key].stone_weight += Number(item.stone_weight || 0);
+      grouped[key].gross_weight += Number(item.gross_weight || 0);
+    }
+
+    const data = Object.values(grouped).map((row) => ({
+      ...row,
+      quantity: Number(row.quantity.toFixed(3)),
+      net_weight: Number(row.net_weight.toFixed(3)),
+      stone_weight: Number(row.stone_weight.toFixed(3)),
+      gross_weight: Number(row.gross_weight.toFixed(3)),
+    }));
 
     return res.status(200).json({
       success: true,
       message: "District inventory fetched successfully",
       organization_id: districtOrgId,
       store_code: districtCode,
-      count: items.length,
-      data: items,
+      summary: {
+        total_stock_items: Number(totalStockItems.toFixed(3)),
+        dead_stock_items: Number(deadStockItems.toFixed(3)),
+        low_stock_items: lowStockItems,
+        transit_goods: Number(transitGoods.toFixed(3)),
+      },
+      count: data.length,
+      data,
     });
   } catch (error) {
     console.error("getDistrictInventory error:", error);

@@ -526,6 +526,25 @@ export const getMyStockRequests = async (req, res) => {
         {
           model: StockRequestItem,
           as: "request_items",
+          include: [
+            {
+              model: Item,
+              as: "item",
+              attributes: [
+                "id",
+                "item_name",
+                "article_code",
+                "sku_code",
+                "category",
+                "metal_type",
+                "purity",
+                "unit",
+                "gross_weight",
+                "net_weight",
+              ],
+              required: false,
+            },
+          ],
         },
         {
           model: StockTransfer,
@@ -535,12 +554,75 @@ export const getMyStockRequests = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
+    let totalRequests = requests.length;
+    let approvedRequests = 0;
+    let transitGoods = 0;
+    let lowStockItems = 0;
+
+    const LOW_STOCK_THRESHOLD = 5;
+
+    for (const reqRow of requests) {
+      const status = String(reqRow.status || "").toLowerCase();
+
+      if (
+        ["approved", "partially_approved", "completed"].includes(status)
+      ) {
+        approvedRequests += 1;
+      }
+
+      const requestItems = Array.isArray(reqRow.request_items)
+        ? reqRow.request_items
+        : [];
+
+      for (const itemRow of requestItems) {
+        const qty = Number(
+          itemRow.request_qty ||
+          itemRow.qty ||
+          itemRow.quantity ||
+          0
+        );
+
+        // Transit goods
+        if (
+          reqRow.transfer &&
+          ["approved", "dispatched", "in_transit"].includes(
+            String(reqRow.transfer.status || "").toLowerCase()
+          )
+        ) {
+          transitGoods += qty;
+        }
+
+        // Low stock
+        if (qty > 0 && qty <= LOW_STOCK_THRESHOLD) {
+          lowStockItems += 1;
+        }
+      }
+    }
+
+    const lowStockAlert = {
+      show_alert: lowStockItems > 0,
+      message:
+        lowStockItems > 0
+          ? `${lowStockItems} item(s) are running low. Request stock from district manager.`
+          : "No low stock items.",
+      request_button_text: "Request Stock",
+    };
+
     return res.status(200).json({
       success: true,
+      summary: {
+        total_requests: totalRequests,
+        approved_requests: approvedRequests,
+        low_stock_items: lowStockItems,
+        transit_goods: transitGoods,
+      },
+      low_stock_alert: lowStockAlert,
       count: requests.length,
       data: requests,
     });
   } catch (error) {
+    console.error("getMyStockRequests error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch my stock requests",
@@ -594,8 +676,58 @@ export const getReceivedStockRequests = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
+    let totalRequests = requests.length;
+    let approvedRequests = 0;
+    let transitGoods = 0;
+    let lowStockItems = 0;
+
+    const LOW_STOCK_THRESHOLD = 5;
+
+    for (const reqItem of requests) {
+      if (
+        ["approved", "partially_approved", "completed"].includes(
+          String(reqItem.status || "").toLowerCase()
+        )
+      ) {
+        approvedRequests += 1;
+      }
+
+      const requestItems = Array.isArray(reqItem.request_items)
+        ? reqItem.request_items
+        : [];
+
+      for (const itemRow of requestItems) {
+        const qty =
+          Number(itemRow.request_qty || itemRow.qty || itemRow.quantity || 0);
+
+        if (qty > 0) {
+          transitGoods += qty;
+        }
+
+        if (qty > 0 && qty <= LOW_STOCK_THRESHOLD) {
+          lowStockItems += 1;
+        }
+      }
+    }
+
+    const lowStockAlert = {
+      show_alert: lowStockItems > 0,
+      message:
+        lowStockItems > 0
+          ? `${lowStockItems} item(s) are running low. Request stock from district manager.`
+          : "No low stock items.",
+      request_button_text: "Request Stock",
+    };
+
     return res.status(200).json({
       success: true,
+      summary: {
+        total_requests: totalRequests,
+        approved_requests: approvedRequests,
+        low_stock_items: lowStockItems,
+        transit_goods: transitGoods,
+      },
+      low_stock_alert: lowStockAlert,
       count: requests.length,
       data: requests,
     });
@@ -608,7 +740,6 @@ export const getReceivedStockRequests = async (req, res) => {
     });
   }
 };
-
 
 // ==========================================
 // GET SINGLE REQUEST
