@@ -1,6 +1,7 @@
 import fs from "fs";
 import sequelize from "../config/db.js";
 import { Op } from "sequelize";
+
 import Store from "../model/Store.js";
 import StockTransfer from "../model/stockTransfer.js";
 import StockTransferItem from "../model/stockTransferItem.js";
@@ -14,6 +15,8 @@ import StockRequest from "../model/StockRequest.js";
 import StockRequestItem from "../model/stockRequestItem.js";
 import District from "../model/District.js";
 import cloudinary from "../utils/cloudinary.js";
+import User from "../model/user.js";
+// import Store from "../model/Store.js";
 
 const generateTransferNo = () => {
   return `TRF-${Date.now()}`;
@@ -1534,12 +1537,97 @@ export const receiveTransfer = async (req, res) => {
 
 
 
+
+const pickStoreName = (store) => {
+  if (!store) return null;
+
+  return (
+    store.store_name ||
+    store.storeName ||
+    store.organization_name ||
+    store.organizationName ||
+    store.district_name ||
+    store.districtName ||
+    store.name ||
+    store.store_code ||
+    store.storeCode ||
+    null
+  );
+};
+
+const pickUserName = (user) => {
+  if (!user) return null;
+
+  return (
+    user.username ||
+    user.name ||
+    user.full_name ||
+    user.fullName ||
+    user.email ||
+    null
+  );
+};
+
+const buildTransferResponse = (transfers, storeMap, userMap) => {
+  return transfers.map((t) => {
+    const plain = typeof t.toJSON === "function" ? t.toJSON() : t;
+
+    return {
+      id: plain.id,
+      transfer_no: plain.transfer_no,
+      request_id: plain.request_id,
+
+      from_organization_id: plain.from_organization_id,
+      from_organization_name:
+        pickStoreName(storeMap.get(Number(plain.from_organization_id))) || null,
+
+      to_organization_id: plain.to_organization_id,
+      to_organization_name:
+        pickStoreName(storeMap.get(Number(plain.to_organization_id))) || null,
+
+      transfer_date: plain.transfer_date,
+      dispatch_date: plain.dispatch_date,
+      receive_date: plain.receive_date,
+      status: plain.status,
+      remarks: plain.remarks,
+
+      approved_by: plain.approved_by,
+      approved_by_name:
+        pickUserName(userMap.get(Number(plain.approved_by))) || null,
+
+      dispatched_by: plain.dispatched_by,
+      dispatched_by_name:
+        pickUserName(userMap.get(Number(plain.dispatched_by))) || null,
+
+      received_by: plain.received_by,
+      received_by_name:
+        pickUserName(userMap.get(Number(plain.received_by))) || null,
+
+      created_by: plain.created_by,
+      created_by_name:
+        pickUserName(userMap.get(Number(plain.created_by))) || null,
+
+      created_at: plain.created_at,
+      updated_at: plain.updated_at,
+
+      transfer_items: plain.transfer_items || [],
+    };
+  });
+};
+
 // ==========================================
 // INCOMING TRANSFERS
 // ==========================================
 export const getIncomingTransfers = async (req, res) => {
   try {
     const user = req.user;
+
+    if (!user?.organization_id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized user",
+      });
+    }
 
     const transfers = await StockTransfer.findAll({
       where: {
@@ -1551,16 +1639,58 @@ export const getIncomingTransfers = async (req, res) => {
       include: [
         {
           model: StockTransferItem,
-          as: "items",
+          as: "transfer_items",
         },
       ],
       order: [["created_at", "DESC"]],
     });
 
+    const orgIds = [
+      ...new Set(
+        transfers
+          .flatMap((t) => [
+            Number(t.from_organization_id || 0),
+            Number(t.to_organization_id || 0),
+          ])
+          .filter(Boolean)
+      ),
+    ];
+
+    const userIds = [
+      ...new Set(
+        transfers
+          .flatMap((t) => [
+            Number(t.created_by || 0),
+            Number(t.approved_by || 0),
+            Number(t.dispatched_by || 0),
+            Number(t.received_by || 0),
+          ])
+          .filter(Boolean)
+      ),
+    ];
+
+    const stores = orgIds.length
+      ? await Store.findAll({
+          where: { id: { [Op.in]: orgIds } },
+        })
+      : [];
+
+    const users = userIds.length
+      ? await User.findAll({
+          where: { id: { [Op.in]: userIds } },
+          attributes: ["id", "username", "email"],
+        })
+      : [];
+
+    const storeMap = new Map(stores.map((s) => [Number(s.id), s]));
+    const userMap = new Map(users.map((u) => [Number(u.id), u]));
+
+    const data = buildTransferResponse(transfers, storeMap, userMap);
+
     return res.status(200).json({
       success: true,
-      count: transfers.length,
-      data: transfers,
+      count: data.length,
+      data,
     });
   } catch (error) {
     return res.status(500).json({
@@ -1571,14 +1701,19 @@ export const getIncomingTransfers = async (req, res) => {
   }
 };
 
-
-
 // ==========================================
 // OUTGOING TRANSFERS
 // ==========================================
 export const getOutgoingTransfers = async (req, res) => {
   try {
     const user = req.user;
+
+    if (!user?.organization_id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized user",
+      });
+    }
 
     const transfers = await StockTransfer.findAll({
       where: {
@@ -1587,21 +1722,286 @@ export const getOutgoingTransfers = async (req, res) => {
       include: [
         {
           model: StockTransferItem,
-          as: "items",
+          as: "transfer_items",
         },
       ],
       order: [["created_at", "DESC"]],
     });
 
+    const orgIds = [
+      ...new Set(
+        transfers
+          .flatMap((t) => [
+            Number(t.from_organization_id || 0),
+            Number(t.to_organization_id || 0),
+          ])
+          .filter(Boolean)
+      ),
+    ];
+
+    const userIds = [
+      ...new Set(
+        transfers
+          .flatMap((t) => [
+            Number(t.created_by || 0),
+            Number(t.approved_by || 0),
+            Number(t.dispatched_by || 0),
+            Number(t.received_by || 0),
+          ])
+          .filter(Boolean)
+      ),
+    ];
+
+    const stores = orgIds.length
+      ? await Store.findAll({
+          where: { id: { [Op.in]: orgIds } },
+        })
+      : [];
+
+    const users = userIds.length
+      ? await User.findAll({
+          where: { id: { [Op.in]: userIds } },
+          attributes: ["id", "username", "email"],
+        })
+      : [];
+
+    const storeMap = new Map(stores.map((s) => [Number(s.id), s]));
+    const userMap = new Map(users.map((u) => [Number(u.id), u]));
+
+    const data = buildTransferResponse(transfers, storeMap, userMap);
+
     return res.status(200).json({
       success: true,
-      count: transfers.length,
-      data: transfers,
+      count: data.length,
+      data,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch outgoing transfers",
+      error: error.message,
+    });
+  }
+};
+
+export const getTransferDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const transfer = await StockTransfer.findByPk(id, {
+      include: [
+        {
+          model: StockTransferItem,
+          as: "transfer_items",
+          include: [
+            {
+              model: Item,
+              as: "item",
+              attributes: [
+                "id",
+                "item_name",
+                "article_code",
+                "category",
+                "sale_rate",
+                "gross_weight",
+                "net_weight",
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!transfer) {
+      return res.status(404).json({
+        success: false,
+        message: "Transfer not found",
+      });
+    }
+
+    // Access check
+    if (
+      Number(user.organization_id) !==
+        Number(transfer.from_organization_id) &&
+      Number(user.organization_id) !==
+        Number(transfer.to_organization_id) &&
+      user.role !== "super_admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to view this transfer",
+      });
+    }
+
+    // Stores
+    const stores = await Store.findAll({
+      where: {
+        id: {
+          [Op.in]: [
+            transfer.from_organization_id,
+            transfer.to_organization_id,
+          ],
+        },
+      },
+    });
+
+    const storeMap = new Map(
+      stores.map((s) => [Number(s.id), s])
+    );
+
+    // Users
+    const userIds = [
+      transfer.created_by,
+      transfer.approved_by,
+      transfer.dispatched_by,
+      transfer.received_by,
+    ].filter(Boolean);
+
+    const users = await User.findAll({
+      where: {
+        id: { [Op.in]: userIds },
+      },
+      attributes: ["id", "username", "email"],
+    });
+
+    const userMap = new Map(
+      users.map((u) => [Number(u.id), u])
+    );
+
+    const data = {
+      id: transfer.id,
+      transfer_no: transfer.transfer_no,
+      tracking_number:
+        transfer.tracking_number ||
+        transfer.transfer_no,
+
+      status: transfer.status,
+      remarks: transfer.remarks,
+
+      from_organization_id:
+        transfer.from_organization_id,
+
+      from_organization_name:
+        pickStoreName(
+          storeMap.get(
+            Number(transfer.from_organization_id)
+          )
+        ),
+
+      to_organization_id:
+        transfer.to_organization_id,
+
+      to_organization_name:
+        pickStoreName(
+          storeMap.get(
+            Number(transfer.to_organization_id)
+          )
+        ),
+
+      transfer_date: transfer.transfer_date,
+      dispatch_date: transfer.dispatch_date,
+      receive_date: transfer.receive_date,
+
+      expected_delivery_date:
+        transfer.expected_delivery_date || null,
+
+      expected_delivery_time:
+        transfer.expected_delivery_time || null,
+
+      driver_details: {
+        driver_name:
+          transfer.driver_name || null,
+        driver_phone:
+          transfer.driver_phone || null,
+        vehicle_number:
+          transfer.vehicle_number || null,
+        tracking_number:
+          transfer.tracking_number || null,
+        driver_photo_url:
+          transfer.driver_photo_url || null,
+      },
+
+      media: {
+        dispatch_image_url:
+          transfer.dispatch_image_url || null,
+        dispatch_video_url:
+          transfer.dispatch_video_url || null,
+        receive_image_url:
+          transfer.receive_image_url || null,
+      },
+
+      created_by: {
+        id: transfer.created_by,
+        name: pickUserName(
+          userMap.get(
+            Number(transfer.created_by)
+          )
+        ),
+      },
+
+      approved_by: {
+        id: transfer.approved_by,
+        name: pickUserName(
+          userMap.get(
+            Number(transfer.approved_by)
+          )
+        ),
+      },
+
+      dispatched_by: {
+        id: transfer.dispatched_by,
+        name: pickUserName(
+          userMap.get(
+            Number(transfer.dispatched_by)
+          )
+        ),
+      },
+
+      received_by: {
+        id: transfer.received_by,
+        name: pickUserName(
+          userMap.get(
+            Number(transfer.received_by)
+          )
+        ),
+      },
+
+      products: transfer.transfer_items.map(
+        (row) => ({
+          id: row.id,
+          item_id: row.item_id,
+          qty: Number(row.qty || 0),
+          weight: Number(row.weight || 0),
+          remarks: row.remarks,
+
+          item_name:
+            row.item?.item_name || null,
+          article_code:
+            row.item?.article_code || null,
+          category:
+            row.item?.category || null,
+          rate: Number(
+            row.item?.sale_rate || 0
+          ),
+          gross_weight: Number(
+            row.item?.gross_weight || 0
+          ),
+        })
+      ),
+    };
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Transfer details fetched successfully",
+      data,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to fetch transfer details",
       error: error.message,
     });
   }

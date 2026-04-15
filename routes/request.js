@@ -12,7 +12,7 @@ import {
   receiveTransfer,
   getIncomingTransfers,
   getOutgoingTransfers,
-  getAvailableStockForRequest,
+  getAvailableStockForRequest,getTransferDetails
 } from "../controller/stockRequest.controller.js";
 
 const router = express.Router();
@@ -40,5 +40,7 @@ router.put(
 router.get("/transfers/incoming", auth, getIncomingTransfers);
 router.get("/transfers/outgoing", auth, getOutgoingTransfers);
 router.put("/transfers/:transferId/receive", auth, receiveTransfer);
+router.get("/transfers/:id/details",auth,getTransferDetails
+);
 
 export default router;

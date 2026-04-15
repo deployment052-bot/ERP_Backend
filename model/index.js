@@ -1,5 +1,6 @@
 import sequelize from "../config/db.js";
 
+import User from "./user.js";
 import Item from "./item.js";
 import Stock from "./stockrecord.js";
 import StockTransfer from "./stockTransfer.js";
@@ -174,6 +175,50 @@ StockTransferItem.belongsTo(StockTransfer, {
 });
 
 /* =========================================================
+   STOCK TRANSFER <-> USER RELATIONS
+========================================================= */
+
+StockTransfer.belongsTo(User, {
+  foreignKey: "created_by",
+  as: "creator",
+});
+
+StockTransfer.belongsTo(User, {
+  foreignKey: "approved_by",
+  as: "approver",
+});
+
+StockTransfer.belongsTo(User, {
+  foreignKey: "dispatched_by",
+  as: "dispatcher",
+});
+
+StockTransfer.belongsTo(User, {
+  foreignKey: "received_by",
+  as: "receiver",
+});
+
+User.hasMany(StockTransfer, {
+  foreignKey: "created_by",
+  as: "created_transfers",
+});
+
+User.hasMany(StockTransfer, {
+  foreignKey: "approved_by",
+  as: "approved_transfers",
+});
+
+User.hasMany(StockTransfer, {
+  foreignKey: "dispatched_by",
+  as: "dispatched_transfers",
+});
+
+User.hasMany(StockTransfer, {
+  foreignKey: "received_by",
+  as: "received_transfers",
+});
+
+/* =========================================================
    REQUEST <-> TRANSFER LINK
 ========================================================= */
 
@@ -189,7 +234,7 @@ StockTransfer.belongsTo(StockRequest, {
 });
 
 /* =========================================================
-   AUDIT TRAIL RELATIONS (recommended)
+   AUDIT TRAIL RELATIONS
 ========================================================= */
 
 // Store -> AuditTrail
@@ -220,6 +265,7 @@ AuditTrail.belongsTo(Item, {
 
 export {
   sequelize,
+  User,
   Item,
   Stock,
   StockTransfer,
