@@ -736,3 +736,300 @@ export const addDistrictItemWithStock = async (req, res) => {
     });
   }
 }
+
+
+
+const safeNumber = (value) => {
+  const num = Number(value || 0);
+  return Number.isNaN(num) ? 0 : num;
+};
+
+const normalizeLevel = (level = "") => String(level).toLowerCase();
+
+const getDistrictFromUser = async (user) => {
+  const orgLevel = normalizeLevel(user.organization_level);
+
+  if (orgLevel !== "district") {
+    throw new Error("Only district user can access this module");
+  }
+
+  // case 1: user.organization_id directly district id ho
+  let district = await District.findByPk(user.organization_id);
+
+  // case 2: agar organization_id kisi aur structure ko refer karta ho,
+  // aur district_code token me ho to district_code se bhi check kar lo
+  if (!district && user.district_code) {
+    district = await District.findOne({
+      where: { district_code: user.district_code },
+    });
+  }
+
+  if (!district) {
+    throw new Error("District not found for logged in user");
+  }
+
+  return district;
+};
+
+/**
+ * GET /api/district/store-management
+ * District user ke under saare stores + summary
+ */
+export const getDistrictStoreManagement = async (req, res) => {
+  try {
+    const { search = "", status = "all" } = req.query;
+    const user = req.user;
+
+    const district = await getDistrictFromUser(user);
+
+    const storeWhere = {
+      district_id: district.id,
+    };
+
+    if (search?.trim()) {
+      storeWhere[Op.or] = [
+        { store_name: { [Op.iLike]: `%${search.trim()}%` } },
+        { store_code: { [Op.iLike]: `%${search.trim()}%` } },
+      ];
+    }
+
+    if (status === "active") {
+      storeWhere.is_active = true;
+    } else if (status === "inactive") {
+      storeWhere.is_active = false;
+    }
+
+    const stores = await Store.findAll({
+      where: storeWhere,
+      attributes: [
+        "id",
+        "store_name",
+        "store_code",
+        "district_id",
+        "is_active",
+      ],
+      order: [["store_name", "ASC"]],
+      raw: true,
+    });
+
+    const storeIds = stores.map((s) => s.id);
+
+    let employeesByStore = {};
+    if (storeIds.length) {
+      const employeeRows = await User.findAll({
+        attributes: [
+          "organization_id",
+          [fn("COUNT", col("id")), "employee_count"],
+        ],
+        where: {
+          organization_id: { [Op.in]: storeIds },
+        },
+        group: ["organization_id"],
+        raw: true,
+      });
+
+      employeesByStore = employeeRows.reduce((acc, row) => {
+        acc[row.organization_id] = safeNumber(row.employee_count);
+        return acc;
+      }, {});
+    }
+
+    // Revenue logic:
+    // agar tumhare paas Ledger/Invoice model hai to yahan actual revenue lagao.
+    // फिलहाल fallback 0 rakha hai, ya tum below commented version use kar sakte ho.
+    let revenueByStore = {};
+
+    /*
+    if (storeIds.length) {
+      const revenueRows = await Ledger.findAll({
+        attributes: [
+          "organization_id",
+          [fn("SUM", col("amount")), "revenue"],
+        ],
+        where: {
+          organization_id: { [Op.in]: storeIds },
+          type: "SALE",
+        },
+        group: ["organization_id"],
+        raw: true,
+      });
+
+      revenueByStore = revenueRows.reduce((acc, row) => {
+        acc[row.organization_id] = safeNumber(row.revenue);
+        return acc;
+      }, {});
+    }
+    */
+
+    const finalStores = stores.map((store) => ({
+      id: store.id,
+      store_name: store.store_name,
+      store_code: store.store_code,
+      is_active: !!store.is_active,
+      employees: employeesByStore[store.id] || 0,
+      revenue: revenueByStore[store.id] || 0,
+    }));
+
+    const summary = {
+      total_stores: finalStores.length,
+      active_stores: finalStores.filter((s) => s.is_active).length,
+      total_employees: finalStores.reduce(
+        (sum, store) => sum + safeNumber(store.employees),
+        0
+      ),
+      total_revenue: finalStores.reduce(
+        (sum, store) => sum + safeNumber(store.revenue),
+        0
+      ),
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "District store management fetched successfully",
+      data: {
+        district: {
+          id: district.id,
+          district_name: district.district_name,
+          district_code: district.district_code,
+        },
+        summary,
+        stores: finalStores,
+      },
+    });
+  } catch (error) {
+    console.error("getDistrictStoreManagement error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch district store management",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/district/store-management/:storeId
+ * Single store inventory details
+ */
+export const getDistrictStoreInventory = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { search = "", category = "" } = req.query;
+    const user = req.user;
+
+    const district = await getDistrictFromUser(user);
+
+    const store = await Store.findOne({
+      where: {
+        id: storeId,
+        district_id: district.id,
+      },
+      attributes: ["id", "store_name", "store_code", "district_id", "is_active"],
+      raw: true,
+    });
+
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: "Store not found under your district",
+      });
+    }
+
+    const itemWhere = {};
+    if (search?.trim()) {
+      itemWhere[Op.or] = [
+        { item_name: { [Op.iLike]: `%${search.trim()}%` } },
+        { article_code: { [Op.iLike]: `%${search.trim()}%` } },
+        { sku_code: { [Op.iLike]: `%${search.trim()}%` } },
+        { category: { [Op.iLike]: `%${search.trim()}%` } },
+      ];
+    }
+
+    if (category?.trim()) {
+      itemWhere.category = category.trim();
+    }
+
+    const inventory = await Stock.findAll({
+      where: {
+        organization_id: store.id,
+      },
+      include: [
+        {
+          model: Item,
+          attributes: [
+            "id",
+            "item_name",
+            "article_code",
+            "sku_code",
+            "category",
+            "purity",
+            "gross_weight",
+            "net_weight",
+            "stone_weight",
+            "making_charge",
+            "sale_rate",
+          ],
+          where: itemWhere,
+          required: true,
+        },
+      ],
+      attributes: [
+        "id",
+        "organization_id",
+        "item_id",
+        "available_qty",
+        "available_weight",
+        "reserved_qty",
+        "reserved_weight",
+        "transit_qty",
+        "transit_weight",
+        "damaged_qty",
+        "damaged_weight",
+      ],
+      order: [[Item, "category", "ASC"], [Item, "item_name", "ASC"]],
+    });
+
+    const rows = inventory.map((row) => ({
+      stock_id: row.id,
+      item_id: row.Item?.id || null,
+      item_name: row.Item?.item_name || null,
+      category: row.Item?.category || null,
+      code: row.Item?.article_code || row.Item?.sku_code || null,
+      quantity: safeNumber(row.available_qty),
+      selling_price: safeNumber(row.Item?.sale_rate),
+      making_charge: safeNumber(row.Item?.making_charge),
+      purity: row.Item?.purity || null,
+      net_weight: safeNumber(row.Item?.net_weight),
+      stone_weight: safeNumber(row.Item?.stone_weight),
+      gross_weight: safeNumber(row.Item?.gross_weight),
+      available_weight: safeNumber(row.available_weight),
+      reserved_qty: safeNumber(row.reserved_qty),
+      reserved_weight: safeNumber(row.reserved_weight),
+      transit_qty: safeNumber(row.transit_qty),
+      transit_weight: safeNumber(row.transit_weight),
+      damaged_qty: safeNumber(row.damaged_qty),
+      damaged_weight: safeNumber(row.damaged_weight),
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Store inventory fetched successfully",
+      data: {
+        store: {
+          id: store.id,
+          store_name: store.store_name,
+          store_code: store.store_code,
+          is_active: !!store.is_active,
+        },
+        count: rows.length,
+        inventory: rows,
+      },
+    });
+  } catch (error) {
+    console.error("getDistrictStoreInventory error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch store inventory",
+      error: error.message,
+    });
+  }
+};

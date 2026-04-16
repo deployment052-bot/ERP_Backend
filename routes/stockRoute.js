@@ -6,7 +6,7 @@ import {
   updateStockStatus,
   stockSummary,
   addStockIn,
-  getStockItemsByCategory,getDistrictInventory
+  getStockItemsByCategory,getDistrictInventory,getDistrictStockItemsByCategory
 } from "../controller/stock.controller.js";
 import { auth } from "../middlewares/authMiddleware.js"
 
@@ -23,4 +23,7 @@ router.post("/stock-in", auth, addStockIn);
 
 //this is for finding the by category according data 
 router.get("/category/:category", auth, getStockItemsByCategory);
+
+
+router.get("/district/inventory/category/:category",auth, getDistrictStockItemsByCategory);
 export default router;
