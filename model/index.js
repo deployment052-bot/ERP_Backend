@@ -11,6 +11,10 @@ import StockRequestItem from "./stockRequestItem.js";
 import AuditTrail from "./audittrail.js";
 import Store from "./Store.js";
 
+// ✅ ADD THESE
+import Customer from "./Customer.js";
+import LedgerEntry from "./LedgerEntry.js";
+
 /* =========================================================
    ITEM RELATIONS
 ========================================================= */
@@ -92,6 +96,32 @@ Store.hasMany(StockMovement, {
 });
 
 StockMovement.belongsTo(Store, {
+  foreignKey: "organization_id",
+  as: "organization",
+});
+
+/* =========================================================
+   CUSTOMER / LEDGER RELATIONS
+========================================================= */
+
+// Customer -> Ledger Entries
+Customer.hasMany(LedgerEntry, {
+  foreignKey: "customer_id",
+  as: "ledger_entries",
+});
+
+LedgerEntry.belongsTo(Customer, {
+  foreignKey: "customer_id",
+  as: "Customer",
+});
+
+// Optional: Store -> Customer
+Store.hasMany(Customer, {
+  foreignKey: "organization_id",
+  as: "customers",
+});
+
+Customer.belongsTo(Store, {
   foreignKey: "organization_id",
   as: "organization",
 });
@@ -275,4 +305,6 @@ export {
   StockRequestItem,
   AuditTrail,
   Store,
+  Customer,      // ✅ ADD
+  LedgerEntry,   // ✅ ADD
 };

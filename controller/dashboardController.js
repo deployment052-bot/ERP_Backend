@@ -6,7 +6,8 @@ import StockMovement from "../model/stockmovement.js";
 import SystemActivity from "../model/systemActivity.js";
 import Task from "../model/task.js";
 import MetalRate from "../model/metalRate.js";
-
+import Customer from "../model/Customer.js";
+// import Invoice from "../model/Invoice.js";
 const hasAttr = (model, attr) => !!model?.rawAttributes?.[attr];
 
 const pickAttr = (model, attrs = []) => {
@@ -380,6 +381,156 @@ export const getDashboardSummary = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch dashboard",
+      error: error.message,
+    });
+  }
+};
+
+export const getAllReports = async (req, res) => {
+  try {
+    const totalCustomers = await Customer.count();
+
+    const dashboardSummary = {
+      totalCustomers: Number(totalCustomers || 0),
+      totalRevenue: 0,
+      totalSales: 0,
+      totalCashReceived: 0,
+      accountTransfer: 0,
+    };
+
+    const labels = getLast7DaysLabelsIndia();
+
+    const cashVsAccount = labels.map((d) => ({
+      date: d.fullDate,
+      day: d.label,
+      cash: 0,
+      online: 0,
+      total: 0,
+    }));
+
+    const categoryRaw = await sequelize.query(
+      `
+      SELECT
+        COALESCE(category::text, 'Others') AS category,
+        COUNT(*)::int AS total_items
+      FROM items
+      GROUP BY category
+      ORDER BY total_items DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const totalCategoryItems = categoryRaw.reduce(
+      (sum, item) => sum + Number(item.total_items || 0),
+      0
+    );
+
+    const categorySales = categoryRaw.map((item) => ({
+      category: item.category,
+      revenue: Number(item.total_items || 0),
+      percentage: totalCategoryItems
+        ? Number(
+            (
+              (Number(item.total_items || 0) / totalCategoryItems) *
+              100
+            ).toFixed(0)
+          )
+        : 0,
+    }));
+
+    const typeDistributionRaw = await sequelize.query(
+      `
+      SELECT
+        CASE
+          WHEN TRIM(
+            CONCAT(
+              COALESCE(metal_type::text, ''),
+              CASE
+                WHEN purity IS NOT NULL AND purity::text <> '' THEN ' ' || purity::text
+                ELSE ''
+              END
+            )
+          ) = ''
+          THEN 'Unknown'
+          ELSE TRIM(
+            CONCAT(
+              COALESCE(metal_type::text, ''),
+              CASE
+                WHEN purity IS NOT NULL AND purity::text <> '' THEN ' ' || purity::text
+                ELSE ''
+              END
+            )
+          )
+        END AS label,
+        COUNT(*)::int AS value
+      FROM items
+      GROUP BY metal_type, purity
+      ORDER BY value DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const typeDistribution = typeDistributionRaw.map((item) => ({
+      label: item.label || "Unknown",
+      value: Number(item.value || 0),
+    }));
+
+    // ✅ actual stock table name from model
+    const stockTableNameRaw = Stock.getTableName();
+    const stockTableName =
+      typeof stockTableNameRaw === "string"
+        ? stockTableNameRaw
+        : stockTableNameRaw.tableName;
+
+    const topProductsRaw = await sequelize.query(
+      `
+      SELECT
+        i.id,
+        i.item_name,
+        COALESCE(i.category::text, 'Others') AS category,
+        COALESCE(SUM(s.available_qty), 0) AS units_sold,
+        COALESCE(SUM(s.available_weight), 0) AS total_revenue
+      FROM items i
+      LEFT JOIN "${stockTableName}" s ON s.item_id = i.id
+      GROUP BY i.id, i.item_name, i.category
+      ORDER BY total_revenue DESC, units_sold DESC
+      LIMIT 5
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const maxRevenue =
+      topProductsRaw.length > 0
+        ? Number(topProductsRaw[0].total_revenue || 0)
+        : 0;
+
+    const topProducts = topProductsRaw.map((item, index) => ({
+      rank: index + 1,
+      product_name: item.item_name,
+      category: item.category,
+      units_sold: Number(item.units_sold || 0),
+      total_revenue: Number(item.total_revenue || 0),
+      performance: maxRevenue
+        ? Math.round((Number(item.total_revenue || 0) / maxRevenue) * 100)
+        : 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Reports fetched successfully",
+      data: {
+        dashboardSummary,
+        cashVsAccount,
+        categorySales,
+        typeDistribution,
+        topProducts,
+      },
+    });
+  } catch (error) {
+    console.error("getAllReports error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch reports",
       error: error.message,
     });
   }
