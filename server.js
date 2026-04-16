@@ -14,8 +14,18 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(cors());
+const corsOptions = {
+  origin: [
+    "http://localhost:3000", // React local
+    "http://localhost:5173", // Vite local
+    "https://inventorysystem-opal.vercel.app" // production frontend
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+// Middlewares
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

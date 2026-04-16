@@ -77,7 +77,7 @@ const InventoryAuditItem = sequelize.define(
     audit_result: {
       type: DataTypes.STRING(30),
       allowNull: false,
-      defaultValue: "pending",
+      defaultValue: "pending", // present / missing / pending
     },
 
     is_checked: {
@@ -145,13 +145,7 @@ const InventoryAuditItem = sequelize.define(
     escalation_status: {
       type: DataTypes.STRING(30),
       allowNull: false,
-      defaultValue: "none",
-    },
-
-    investigation_required: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
+      defaultValue: "none", // none / reason_pending / under_review
     },
 
     image_url: {

@@ -32,7 +32,7 @@ const InventoryAuditFollowup = sequelize.define(
 
     followup_type: {
       type: DataTypes.STRING(30),
-      allowNull: false,
+      allowNull: false, // reason_request / audit_pending
     },
 
     status: {
@@ -75,8 +75,9 @@ const InventoryAuditFollowup = sequelize.define(
       { fields: ["audit_id"] },
       { fields: ["audit_item_id"] },
       { fields: ["item_id"] },
-      { fields: ["status"] },
       { fields: ["followup_date"] },
+      { fields: ["status"] },
+      { fields: ["followup_type"] },
     ],
   }
 );

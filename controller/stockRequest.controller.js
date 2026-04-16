@@ -1668,7 +1668,6 @@ export const receiveTransfer = async (req, res) => {
 
 
 
-
 const pickStoreName = (store) => {
   if (!store) return null;
 
@@ -1706,6 +1705,7 @@ const buildTransferResponse = (transfers, storeMap, userMap) => {
     return {
       id: plain.id,
       transfer_no: plain.transfer_no,
+      tracking_number: plain.tracking_number || plain.transfer_no,
       request_id: plain.request_id,
 
       from_organization_id: plain.from_organization_id,
@@ -1719,6 +1719,9 @@ const buildTransferResponse = (transfers, storeMap, userMap) => {
       transfer_date: plain.transfer_date,
       dispatch_date: plain.dispatch_date,
       receive_date: plain.receive_date,
+      expected_delivery_date: plain.expected_delivery_date || null,
+      expected_delivery_time: plain.expected_delivery_time || null,
+
       status: plain.status,
       remarks: plain.remarks,
 
@@ -1738,12 +1741,98 @@ const buildTransferResponse = (transfers, storeMap, userMap) => {
       created_by_name:
         pickUserName(userMap.get(Number(plain.created_by))) || null,
 
+      driver_details: {
+        driver_name: plain.driver_name || null,
+        driver_phone: plain.driver_phone || null,
+        vehicle_number: plain.vehicle_number || null,
+        tracking_number: plain.tracking_number || null,
+        driver_photo_url: plain.driver_photo_url || null,
+      },
+
+      media: {
+        dispatch_image_url: plain.dispatch_image_url || null,
+        dispatch_video_url: plain.dispatch_video_url || null,
+        receive_image_url: plain.receive_image_url || null,
+      },
+
       created_at: plain.created_at,
       updated_at: plain.updated_at,
 
       transfer_items: plain.transfer_items || [],
     };
   });
+};
+
+const buildTransferSummary = (transfers = []) => {
+  let inTransit = 0;
+  let shipments = 0;
+  let goodsReceipt = 0;
+
+  for (const row of transfers) {
+    const status = String(row.status || "").toLowerCase();
+
+    if (["approved", "dispatched", "in_transit"].includes(status)) {
+      inTransit += 1;
+    }
+
+    if (["approved", "dispatched", "in_transit", "received"].includes(status)) {
+      shipments += 1;
+    }
+
+    if (status === "received") {
+      goodsReceipt += 1;
+    }
+  }
+
+  return {
+    in_transit: inTransit,
+    shipments,
+    goods_receipt: goodsReceipt,
+  };
+};
+
+const loadTransferMeta = async (transfers = []) => {
+  const orgIds = [
+    ...new Set(
+      transfers
+        .flatMap((t) => [
+          Number(t.from_organization_id || 0),
+          Number(t.to_organization_id || 0),
+        ])
+        .filter(Boolean)
+    ),
+  ];
+
+  const userIds = [
+    ...new Set(
+      transfers
+        .flatMap((t) => [
+          Number(t.created_by || 0),
+          Number(t.approved_by || 0),
+          Number(t.dispatched_by || 0),
+          Number(t.received_by || 0),
+        ])
+        .filter(Boolean)
+    ),
+  ];
+
+  const stores = orgIds.length
+    ? await Store.findAll({
+        where: { id: { [Op.in]: orgIds } },
+      })
+    : [];
+
+  const users = userIds.length
+    ? await User.findAll({
+        where: { id: { [Op.in]: userIds } },
+        attributes: ["id", "username", "email"],
+      })
+    : [];
+
+  return {
+    storeMap: new Map(stores.map((s) => [Number(s.id), s])),
+    userMap: new Map(users.map((u) => [Number(u.id), u])),
+  };
 };
 
 // ==========================================
@@ -1776,54 +1865,18 @@ export const getIncomingTransfers = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
-    const orgIds = [
-      ...new Set(
-        transfers
-          .flatMap((t) => [
-            Number(t.from_organization_id || 0),
-            Number(t.to_organization_id || 0),
-          ])
-          .filter(Boolean)
-      ),
-    ];
-
-    const userIds = [
-      ...new Set(
-        transfers
-          .flatMap((t) => [
-            Number(t.created_by || 0),
-            Number(t.approved_by || 0),
-            Number(t.dispatched_by || 0),
-            Number(t.received_by || 0),
-          ])
-          .filter(Boolean)
-      ),
-    ];
-
-    const stores = orgIds.length
-      ? await Store.findAll({
-          where: { id: { [Op.in]: orgIds } },
-        })
-      : [];
-
-    const users = userIds.length
-      ? await User.findAll({
-          where: { id: { [Op.in]: userIds } },
-          attributes: ["id", "username", "email"],
-        })
-      : [];
-
-    const storeMap = new Map(stores.map((s) => [Number(s.id), s]));
-    const userMap = new Map(users.map((u) => [Number(u.id), u]));
-
+    const { storeMap, userMap } = await loadTransferMeta(transfers);
     const data = buildTransferResponse(transfers, storeMap, userMap);
+    const summary = buildTransferSummary(transfers);
 
     return res.status(200).json({
       success: true,
+      summary,
       count: data.length,
       data,
     });
   } catch (error) {
+    console.error("getIncomingTransfers error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch incoming transfers",
@@ -1859,54 +1912,18 @@ export const getOutgoingTransfers = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
-    const orgIds = [
-      ...new Set(
-        transfers
-          .flatMap((t) => [
-            Number(t.from_organization_id || 0),
-            Number(t.to_organization_id || 0),
-          ])
-          .filter(Boolean)
-      ),
-    ];
-
-    const userIds = [
-      ...new Set(
-        transfers
-          .flatMap((t) => [
-            Number(t.created_by || 0),
-            Number(t.approved_by || 0),
-            Number(t.dispatched_by || 0),
-            Number(t.received_by || 0),
-          ])
-          .filter(Boolean)
-      ),
-    ];
-
-    const stores = orgIds.length
-      ? await Store.findAll({
-          where: { id: { [Op.in]: orgIds } },
-        })
-      : [];
-
-    const users = userIds.length
-      ? await User.findAll({
-          where: { id: { [Op.in]: userIds } },
-          attributes: ["id", "username", "email"],
-        })
-      : [];
-
-    const storeMap = new Map(stores.map((s) => [Number(s.id), s]));
-    const userMap = new Map(users.map((u) => [Number(u.id), u]));
-
+    const { storeMap, userMap } = await loadTransferMeta(transfers);
     const data = buildTransferResponse(transfers, storeMap, userMap);
+    const summary = buildTransferSummary(transfers);
 
     return res.status(200).json({
       success: true,
+      summary,
       count: data.length,
       data,
     });
   } catch (error) {
+    console.error("getOutgoingTransfers error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch outgoing transfers",
@@ -1915,6 +1932,9 @@ export const getOutgoingTransfers = async (req, res) => {
   }
 };
 
+// ==========================================
+// SINGLE TRANSFER DETAILS
+// ==========================================
 export const getTransferDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1951,13 +1971,10 @@ export const getTransferDetails = async (req, res) => {
       });
     }
 
-    // Access check
     if (
-      Number(user.organization_id) !==
-        Number(transfer.from_organization_id) &&
-      Number(user.organization_id) !==
-        Number(transfer.to_organization_id) &&
-      user.role !== "super_admin"
+      Number(user.organization_id) !== Number(transfer.from_organization_id) &&
+      Number(user.organization_id) !== Number(transfer.to_organization_id) &&
+      String(user.role || "").toLowerCase() !== "super_admin"
     ) {
       return res.status(403).json({
         success: false,
@@ -1965,174 +1982,122 @@ export const getTransferDetails = async (req, res) => {
       });
     }
 
-    // Stores
     const stores = await Store.findAll({
       where: {
         id: {
           [Op.in]: [
-            transfer.from_organization_id,
-            transfer.to_organization_id,
+            Number(transfer.from_organization_id),
+            Number(transfer.to_organization_id),
           ],
         },
       },
     });
 
-    const storeMap = new Map(
-      stores.map((s) => [Number(s.id), s])
-    );
+    const storeMap = new Map(stores.map((s) => [Number(s.id), s]));
 
-    // Users
     const userIds = [
-      transfer.created_by,
-      transfer.approved_by,
-      transfer.dispatched_by,
-      transfer.received_by,
+      Number(transfer.created_by || 0),
+      Number(transfer.approved_by || 0),
+      Number(transfer.dispatched_by || 0),
+      Number(transfer.received_by || 0),
     ].filter(Boolean);
 
-    const users = await User.findAll({
-      where: {
-        id: { [Op.in]: userIds },
-      },
-      attributes: ["id", "username", "email"],
-    });
+    const users = userIds.length
+      ? await User.findAll({
+          where: {
+            id: { [Op.in]: userIds },
+          },
+          attributes: ["id", "username", "email"],
+        })
+      : [];
 
-    const userMap = new Map(
-      users.map((u) => [Number(u.id), u])
-    );
+    const userMap = new Map(users.map((u) => [Number(u.id), u]));
 
     const data = {
       id: transfer.id,
       transfer_no: transfer.transfer_no,
-      tracking_number:
-        transfer.tracking_number ||
-        transfer.transfer_no,
+      tracking_number: transfer.tracking_number || transfer.transfer_no,
 
       status: transfer.status,
       remarks: transfer.remarks,
 
-      from_organization_id:
-        transfer.from_organization_id,
+      from_organization_id: transfer.from_organization_id,
+      from_organization_name: pickStoreName(
+        storeMap.get(Number(transfer.from_organization_id))
+      ),
 
-      from_organization_name:
-        pickStoreName(
-          storeMap.get(
-            Number(transfer.from_organization_id)
-          )
-        ),
-
-      to_organization_id:
-        transfer.to_organization_id,
-
-      to_organization_name:
-        pickStoreName(
-          storeMap.get(
-            Number(transfer.to_organization_id)
-          )
-        ),
+      to_organization_id: transfer.to_organization_id,
+      to_organization_name: pickStoreName(
+        storeMap.get(Number(transfer.to_organization_id))
+      ),
 
       transfer_date: transfer.transfer_date,
       dispatch_date: transfer.dispatch_date,
       receive_date: transfer.receive_date,
 
-      expected_delivery_date:
-        transfer.expected_delivery_date || null,
-
-      expected_delivery_time:
-        transfer.expected_delivery_time || null,
+      expected_delivery_date: transfer.expected_delivery_date || null,
+      expected_delivery_time: transfer.expected_delivery_time || null,
 
       driver_details: {
-        driver_name:
-          transfer.driver_name || null,
-        driver_phone:
-          transfer.driver_phone || null,
-        vehicle_number:
-          transfer.vehicle_number || null,
-        tracking_number:
-          transfer.tracking_number || null,
-        driver_photo_url:
-          transfer.driver_photo_url || null,
+        driver_name: transfer.driver_name || null,
+        driver_phone: transfer.driver_phone || null,
+        vehicle_number: transfer.vehicle_number || null,
+        tracking_number: transfer.tracking_number || null,
+        driver_photo_url: transfer.driver_photo_url || null,
       },
 
       media: {
-        dispatch_image_url:
-          transfer.dispatch_image_url || null,
-        dispatch_video_url:
-          transfer.dispatch_video_url || null,
-        receive_image_url:
-          transfer.receive_image_url || null,
+        dispatch_image_url: transfer.dispatch_image_url || null,
+        dispatch_video_url: transfer.dispatch_video_url || null,
+        receive_image_url: transfer.receive_image_url || null,
       },
 
       created_by: {
         id: transfer.created_by,
-        name: pickUserName(
-          userMap.get(
-            Number(transfer.created_by)
-          )
-        ),
+        name: pickUserName(userMap.get(Number(transfer.created_by))),
       },
 
       approved_by: {
         id: transfer.approved_by,
-        name: pickUserName(
-          userMap.get(
-            Number(transfer.approved_by)
-          )
-        ),
+        name: pickUserName(userMap.get(Number(transfer.approved_by))),
       },
 
       dispatched_by: {
         id: transfer.dispatched_by,
-        name: pickUserName(
-          userMap.get(
-            Number(transfer.dispatched_by)
-          )
-        ),
+        name: pickUserName(userMap.get(Number(transfer.dispatched_by))),
       },
 
       received_by: {
         id: transfer.received_by,
-        name: pickUserName(
-          userMap.get(
-            Number(transfer.received_by)
-          )
-        ),
+        name: pickUserName(userMap.get(Number(transfer.received_by))),
       },
 
-      products: transfer.transfer_items.map(
-        (row) => ({
-          id: row.id,
-          item_id: row.item_id,
-          qty: Number(row.qty || 0),
-          weight: Number(row.weight || 0),
-          remarks: row.remarks,
+      products: (transfer.transfer_items || []).map((row) => ({
+        id: row.id,
+        item_id: row.item_id,
+        qty: Number(row.qty || 0),
+        weight: Number(row.weight || 0),
+        remarks: row.remarks || null,
 
-          item_name:
-            row.item?.item_name || null,
-          article_code:
-            row.item?.article_code || null,
-          category:
-            row.item?.category || null,
-          rate: Number(
-            row.item?.sale_rate || 0
-          ),
-          gross_weight: Number(
-            row.item?.gross_weight || 0
-          ),
-        })
-      ),
+        item_name: row.item?.item_name || null,
+        article_code: row.item?.article_code || null,
+        category: row.item?.category || null,
+        rate: Number(row.item?.sale_rate || 0),
+        gross_weight: Number(row.item?.gross_weight || 0),
+        net_weight: Number(row.item?.net_weight || 0),
+      })),
     };
 
     return res.status(200).json({
       success: true,
-      message:
-        "Transfer details fetched successfully",
+      message: "Transfer details fetched successfully",
       data,
     });
   } catch (error) {
+    console.error("getTransferDetails error:", error);
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to fetch transfer details",
+      message: "Failed to fetch transfer details",
       error: error.message,
     });
   }

@@ -141,7 +141,7 @@ const InventoryAudit = sequelize.define(
 
     created_by: {
       type: DataTypes.BIGINT,
-      allowNull: false,
+      allowNull: true,
     },
 
     reviewed_by: {
@@ -164,10 +164,9 @@ const InventoryAudit = sequelize.define(
       { fields: ["organization_id"] },
       { fields: ["audit_date"] },
       { fields: ["status"] },
-      { fields: ["visible_to_organization_id"] },
-      { fields: ["district_id"] },
       { fields: ["store_id"] },
-      { fields: ["created_by"] },
+      { fields: ["district_id"] },
+      { fields: ["visible_to_organization_id"] },
       {
         unique: true,
         fields: ["organization_id", "audit_date", "audit_type"],
