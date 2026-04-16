@@ -109,6 +109,10 @@ const Item = sequelize.define(
     storeName: {
       type: DataTypes.STRING,
     },
+    is_active: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: true
+}
   },
   
 

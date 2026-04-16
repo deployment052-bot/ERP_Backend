@@ -14,6 +14,10 @@ import reportRoutes from "./routes/reportRoutes.js";
 import swaggerSpec from "./config/swagger.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import swaggerUi from "swagger-ui-express";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
+import headReportsRoutes from "./routes/headReportsRoutes.js";
+import storeManagementFlowRoutes from "./routes/storeManagementFlow.js";
+import invoiceRoutes from "./routes/invoiceRoutes.js";
 dotenv.config();
 
 const app = express();
@@ -33,7 +37,10 @@ app.use("/api", sheetRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/customers", customerRoutes);
-
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/head-reports", headReportsRoutes);
+app.use("/api/store-management", storeManagementFlowRoutes);
+app.use("/api/invoice", invoiceRoutes);
 const startServer = async () => {
   try {
     await sequelize.authenticate();

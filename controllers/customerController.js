@@ -51,7 +51,7 @@ export const createCustomer = async (req, res) => {
 };
 
 /**
- * @desc    Search customers with optional balance (Screenshot 3, 4)
+ * @desc    Search customers with optional balance
  * @route   GET /api/customer/search?q=Johan&with_balance=true
  * @access  Private
  */
@@ -124,7 +124,7 @@ export const searchCustomers = async (req, res) => {
 };
 
 /**
- * @desc    Get single customer with invoices (Screenshot 4)
+ * @desc    Get single customer with invoices
  * @route   GET /api/customer/:id
  * @access  Private
  */
