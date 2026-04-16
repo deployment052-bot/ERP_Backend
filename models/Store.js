@@ -12,11 +12,10 @@ const Store = sequelize.define(
     },
 
     store_code: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-      field: "store_code",
-    },
+  type: DataTypes.STRING,
+  allowNull: false,
+  field: "store_code"   
+},
 
     store_name: {
       type: DataTypes.STRING,
@@ -25,7 +24,7 @@ const Store = sequelize.define(
     },
 
     organizationlevel: {
-      type: DataTypes.ENUM("head_office", "State", "District", "Retail"),
+      type: DataTypes.ENUM("head_office", "District", "Retail"),
       allowNull: false,
       defaultValue: "Retail",
       field: "organization_level",

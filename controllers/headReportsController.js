@@ -3,10 +3,6 @@ import { QueryTypes } from "sequelize";
 
 export const getDashboardAnalytics = async (req, res) => {
   try {
-
-    // =========================
-    // 1. TOTAL REVENUE
-    // =========================
     const revenueResult = await sequelize.query(`
       SELECT COALESCE(SUM(total_amount), 0) AS total_revenue
       FROM invoices
@@ -15,10 +11,6 @@ export const getDashboardAnalytics = async (req, res) => {
 
     const totalRevenue = parseFloat(revenueResult[0].total_revenue);
 
-
-    // =========================
-    // 2. TOTAL PROFIT (FIXED ✅)
-    // =========================
     const profitResult = await sequelize.query(`
   SELECT COALESCE(
     SUM(
@@ -40,9 +32,7 @@ export const getDashboardAnalytics = async (req, res) => {
 
     const totalProfit = parseFloat(profitResult[0].total_profit);
 
-    // =========================
-    // 3. TOTAL INVENTORY
-    // =========================
+   
     const inventoryResult = await sequelize.query(`
       SELECT COUNT(*) AS total_inventory
       FROM items
@@ -50,10 +40,6 @@ export const getDashboardAnalytics = async (req, res) => {
 
     const totalInventory = parseInt(inventoryResult[0].total_inventory);
 
-
-    // =========================
-    // 4. AVG MONTHLY SALES
-    // =========================
     const avgSalesResult = await sequelize.query(`
       SELECT COALESCE(AVG(monthly_sales), 0) AS avg_sales FROM (
         SELECT 
@@ -66,11 +52,6 @@ export const getDashboardAnalytics = async (req, res) => {
     `, { type: QueryTypes.SELECT });
 
     const avgMonthlySales = parseFloat(avgSalesResult[0].avg_sales);
-
-
-    // =========================
-    // FINAL RESPONSE
-    // =========================
     res.json({
       success: true,
       data: {
@@ -125,9 +106,6 @@ export const getMonthlySalesProfit = async (req, res) => {
 
     `, { type: QueryTypes.SELECT });
 
-    // =========================
-    // FORMAT RESPONSE (UI MATCH)
-    // =========================
     const formatted = data.map(item => ({
       label: item.month, // Jan, Feb...
       sales: parseFloat(item.sales),
@@ -169,18 +147,10 @@ export const getCategoryWiseSales = async (req, res) => {
       ORDER BY total_sales DESC
     `, { type: QueryTypes.SELECT });
 
-
-    // =========================
-    // TOTAL FOR PERCENTAGE
-    // =========================
     const total = data.reduce((sum, item) => 
       sum + parseFloat(item.total_sales), 0
     );
 
-
-    // =========================
-    // FORMAT FOR UI (PIE)
-    // =========================
     const formatted = data.map(item => ({
       category: item.category,
       value: parseFloat(item.total_sales),
@@ -227,9 +197,7 @@ export const getMetalDistribution = async (req, res) => {
     `, { type: QueryTypes.SELECT });
 
 
-    // =========================
-    // FORMAT FOR UI
-    // =========================
+    
     const formatted = data.map(item => ({
       label: item.label,
       value: parseFloat(item.revenue)
@@ -268,10 +236,10 @@ export const getTopProducts = async (req, res) => {
       LIMIT 5
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // 🔥 Max revenue (performance calculate karne ke liye)
+    
     const maxRevenue = data.length > 0 ? Number(data[0].total_revenue) : 0;
 
-    // 🔥 Final UI format
+  
     const finalData = data.map((item, index) => ({
       rank: index + 1,
       product_name: item.item_name,
@@ -310,12 +278,8 @@ export const getDailySalesTrend = async (req, res) => {
       ORDER BY DATE(invoice_date) ASC
     `, { type: QueryTypes.SELECT });
 
-
-    // =========================
-    // FORMAT FOR UI (1–30 days)
-    // =========================
     const formatted = data.map(item => ({
-      label: item.date, // ya day number bhi bana sakte ho
+      label: item.date, 
       sales: parseFloat(item.sales)
     }));
 

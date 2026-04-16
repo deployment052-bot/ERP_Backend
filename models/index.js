@@ -11,18 +11,20 @@ import Transaction from "./Transaction.js";
 import TransactionEntry from "./TransactionEntry.js";
 import LedgerEntry from "./LedgerEntry.js";
 import sequelize from "../config/db.js";
+import Bill from "./Bill.js";
+import BillItem from "./BillItem.js";
 
 // ================== LOCATION HIERARCHY ==================
 
 // STATE → DISTRICT
-State.hasMany(District, { foreignKey: "state_name" }); // state_name ki jagah state_id
+State.hasMany(District, { foreignKey: "state_name" });
 District.belongsTo(State, { foreignKey: "state_name" });
 
 // DISTRICT → STORE
 District.hasMany(Store, { foreignKey: "district_id" });
 Store.belongsTo(District, { foreignKey: "district_id" });
 
-// STORE → ITEM (Inventory)
+// STORE → ITEM
 Store.hasMany(Item, { foreignKey: "store_id" });
 Item.belongsTo(Store, { foreignKey: "store_id" });
 
@@ -30,72 +32,123 @@ Item.belongsTo(Store, { foreignKey: "store_id" });
 Item.hasOne(Stock, { foreignKey: "item_id" });
 Stock.belongsTo(Item, { foreignKey: "item_id" });
 
+// ================== STORE RELATIONS ==================
+
 // STORE → CUSTOMER
-Store.hasMany(Customer, { foreignKey: "store_code", sourceKey: "store_code" });
-Customer.belongsTo(Store, { foreignKey: "store_code", targetKey: "store_code" });
+Store.hasMany(Customer, {
+  foreignKey: "store_code",
+  sourceKey: "store_code",
+});
+Customer.belongsTo(Store, {
+  foreignKey: "store_code",
+  targetKey: "store_code",
+});
 
 // STORE → INVOICE
-Store.hasMany(Invoice, { foreignKey: "store_code", sourceKey: "store_code" });
-Invoice.belongsTo(Store, { foreignKey: "store_code", targetKey: "store_code" });
+Store.hasMany(Invoice, {
+  foreignKey: "store_code",
+  sourceKey: "store_code",
+});
+Invoice.belongsTo(Store, {
+  foreignKey: "store_code",
+  targetKey: "store_code",
+});
 
 // STORE → PAYMENT
-Store.hasMany(Payment, { foreignKey: "store_code", sourceKey: "store_code" });
-Payment.belongsTo(Store, { foreignKey: "store_code", targetKey: "store_code" });
+Store.hasMany(Payment, {
+  foreignKey: "store_code",
+  sourceKey: "store_code",
+});
+Payment.belongsTo(Store, {
+  foreignKey: "store_code",
+  targetKey: "store_code",
+});
 
-// ================== CUSTOMER → INVOICE → PAYMENT ==================
+// ================== CUSTOMER FLOW ==================
 
 // CUSTOMER → INVOICE
-Customer.hasMany(Invoice, { foreignKey: "customer_id" });
-Invoice.belongsTo(Customer, { foreignKey: "customer_id" });
+Customer.hasMany(Invoice, {
+  foreignKey: "customer_id",
+  as: "invoices",
+});
 
-// INVOICE → PAYMENT
-Invoice.hasMany(Payment, { foreignKey: "invoice_id" });
-Payment.belongsTo(Invoice, { foreignKey: "invoice_id" });
+Invoice.belongsTo(Customer, {
+  foreignKey: "customer_id",
+  as: "customer", // 🔥 IMPORTANT FIX
+});
+
+// ================== INVOICE FLOW ==================
 
 // INVOICE → ITEMS
 Invoice.hasMany(InvoiceItem, {
   foreignKey: "invoice_id",
   as: "items",
 });
+
 InvoiceItem.belongsTo(Invoice, {
   foreignKey: "invoice_id",
 });
 
-// ================== ACCOUNTING (Double Entry) ==================
+// INVOICE → PAYMENT
+Invoice.hasMany(Payment, {
+  foreignKey: "invoice_id",
+  as: "payments",
+});
+
+Payment.belongsTo(Invoice, {
+  foreignKey: "invoice_id",
+});
+
+// ================== BILLING ==================
+
+Bill.hasMany(BillItem, {
+  foreignKey: "bill_id",
+  as: "bill_items",
+});
+
+BillItem.belongsTo(Bill, {
+  foreignKey: "bill_id",
+});
+
+// ================== ACCOUNTING ==================
 
 // TRANSACTION → ENTRIES
 Transaction.hasMany(TransactionEntry, {
   foreignKey: "transaction_id",
   as: "entries",
 });
+
 TransactionEntry.belongsTo(Transaction, {
   foreignKey: "transaction_id",
 });
 
-// ================== LEDGER (Customer Khata) ==================
+// ================== LEDGER ==================
 
 // CUSTOMER → LEDGER
 Customer.hasMany(LedgerEntry, {
   foreignKey: "customer_id",
   as: "ledger_entries",
 });
+
 LedgerEntry.belongsTo(Customer, {
   foreignKey: "customer_id",
 });
 
-// LEDGER → INVOICE (Polymorphic reference)
+// LEDGER → INVOICE (Polymorphic)
 LedgerEntry.belongsTo(Invoice, {
   foreignKey: "reference_id",
   constraints: false,
   as: "invoice",
 });
 
-// LEDGER → PAYMENT (Polymorphic reference)
+// LEDGER → PAYMENT (Polymorphic)
 LedgerEntry.belongsTo(Payment, {
   foreignKey: "reference_id",
   constraints: false,
   as: "payment",
 });
+
+// ================== EXPORT ==================
 
 export {
   State,
@@ -111,4 +164,6 @@ export {
   Transaction,
   TransactionEntry,
   LedgerEntry,
+  Bill,
+  BillItem,
 };
