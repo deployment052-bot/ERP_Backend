@@ -1,10 +1,10 @@
 import express from "express";
-import {auth} from "../middlewares/authMiddleware.js"
-// Import all your screenshot controllers
+import { auth } from "../middlewares/authMiddleware.js";
+
 import {
   createCustomer,
   searchCustomers,
-  getCustomer
+  getCustomer,
 } from "../controller/customerController.js";
 
 // import {
@@ -12,40 +12,45 @@ import {
 //   getInvoiceDetail,
 //   getCustomerInvoices,
 //   getPendingInvoices,
-// } from "../controllers/invoiceController.js";
+// } from "../controller/invoiceController.js";
 
-// import {
-//   createPayment,
-//   getPaymentsByInvoice,
-// } from "../controllers/paymentController.js";
+import {
+  createPayment,
+  getPaymentsByInvoice,
+  getPaymentsByCustomer,
+  getPaymentInvoiceList,
+  getPaymentTracker,
+} from "../controller/paymentController.js";
 
 import {
   getLedger,
   getCustomerLedgerDetail,
-  downloadLedgerExcel
+  downloadLedgerExcel,
 } from "../controller/ledgerController.js";
 
 const router = express.Router();
 
 // ==================== CUSTOMER ROUTES ====================
-router.post("/customer", createCustomer);
-router.get("/customer/search", searchCustomers);
-router.get("/customer/:id", getCustomer);
+router.post("/customer", auth, createCustomer);
+router.get("/customer/search", auth, searchCustomers);
+router.get("/customer/:id", auth, getCustomer);
 
 // ==================== INVOICE ROUTES ====================
-// router.post("/invoice", createInvoice);
-// router.get("/invoice/detail/:invoice_id", getInvoiceDetail);
-// router.get("/invoice/customer/:customer_id", getCustomerInvoices);
-// router.get("/invoice/pending", getPendingInvoices);
+// router.post("/invoice", auth, createInvoice);
+// router.get("/invoice/detail/:invoice_id", auth, getInvoiceDetail);
+// router.get("/invoice/customer/:customer_id", auth, getCustomerInvoices);
+// router.get("/invoice/pending", auth, getPendingInvoices);
 
 // ==================== PAYMENT ROUTES ====================
-// router.post("/payment", createPayment);
-// router.get("/payment/invoice/:invoice_id", getPaymentsByInvoice);
+router.post("/payment", auth, createPayment);
+router.get("/payment/list", auth, getPaymentInvoiceList);
+router.get("/payment/invoice/:invoice_id", auth, getPaymentsByInvoice);
+router.get("/payment/customer/:customer_id", auth, getPaymentsByCustomer);
+router.get("/payment/tracker/:customer_id", auth, getPaymentTracker);
 
 // ==================== LEDGER ROUTES ====================
-router.get("/ledger", auth,getLedger);
-router.get("/ledger/customer/:customer_id",auth, getCustomerLedgerDetail);
-
+router.get("/ledger", auth, getLedger);
+router.get("/ledger/customer/:customer_id", auth, getCustomerLedgerDetail);
 router.get("/ledger/download-excel", auth, downloadLedgerExcel);
 
 export default router;
