@@ -1,5 +1,5 @@
 import express from "express";
-import { createBill } from "../controller/billingController.js";
+import { createInvoiceFromBill,createBill } from "../controller/billingController.js";
 
 const router = express.Router();
 router.post("/create-bill", createBill);

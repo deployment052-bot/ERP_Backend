@@ -1,17 +1,24 @@
-import Bill from "../model/Bill.js";
-import BillItem from "../model/BillItem.js";
-import Store from "../model/Store.js";
-import Stock from "../model/stockrecord.js";
-import StockMovement from "../model/stockmovement.js";
-import Item from "../model/item.js";
-import Customer from "../model/Customer.js";
-import LedgerEntry from "../model/LedgerEntry.js";
-import sequelize from "../config/db.js";
+import fs from "fs";
+import path from "path";
+import PDFDocument from "pdfkit";
 import { Op } from "sequelize";
 
-const normalizePhone = (phone) => {
-  if (!phone) return null;
-  return String(phone).replace(/\D/g, "").trim() || null;
+import Bill from "../model/Bill.js";
+import BillItem from "../model/BillItem.js";
+import Customer from "../model/Customer.js";
+import Invoice from "../model/invoices.js";
+import InvoiceItem from "../model/InvoiceItem.js";
+import LedgerEntry from "../model/LedgerEntry.js";
+import Store from "../model/Store.js";
+import Stock from "../model/stockrecord.js";
+import StockMovement from "../model/stockMovement.js";
+import Item from "../model/item.js";
+import sequelize from "../config/db.js";
+
+const ensureDir = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
 };
 
 const toNumber = (value) => {
@@ -19,9 +26,59 @@ const toNumber = (value) => {
   return Number.isFinite(num) ? num : 0;
 };
 
+const normalizePhone = (phone) => {
+  if (!phone) return null;
+  return String(phone).replace(/\D/g, "").trim() || null;
+};
+
+const resolveUserScope = (user) => {
+  const organization_id =
+    user?.organization_id ??
+    user?.organizationId ??
+    user?.org_id ??
+    user?.orgId ??
+    user?.branch_id ??
+    user?.branchId ??
+    user?.store_id ??
+    user?.store?.id ??
+    null;
+
+  const store_code =
+    user?.store_code ??
+    user?.storeCode ??
+    user?.code ??
+    user?.store?.store_code ??
+    user?.store?.code ??
+    null;
+
+  const organization_level =
+    user?.organization_level ??
+    user?.organizationLevel ??
+    user?.level ??
+    user?.store?.organization_level ??
+    null;
+
+  return {
+    organization_id: organization_id ? Number(organization_id) : null,
+    store_code: store_code ? String(store_code).trim().toUpperCase() : null,
+    organization_level: organization_level || null,
+  };
+};
+
+const generateInvoiceNumber = (storeCode = "STORE") => {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mi = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+
+  return `INV-${storeCode}-${yyyy}${mm}${dd}${hh}${mi}${ss}`;
+};
+
 const generateBillNumber = (storeCode = "STORE") => {
   const now = new Date();
-
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
@@ -32,20 +89,405 @@ const generateBillNumber = (storeCode = "STORE") => {
   return `BILL-${storeCode}-${yyyy}${mm}${dd}${hh}${mi}${ss}`;
 };
 
-/**
- * @desc    Create bill with customer + stock deduction + ledger entry
- * @route   POST /api/bills
- * @access  Private
- */
+const generateInvoicePdf = async ({
+  invoice,
+  bill,
+  customer,
+  billItems,
+  summary,
+}) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const invoicesDir = path.join(process.cwd(), "uploads", "invoices");
+      ensureDir(invoicesDir);
+
+      const fileName = `${invoice.invoice_number || `invoice-${invoice.id}`}.pdf`;
+      const filePath = path.join(invoicesDir, fileName);
+
+      const doc = new PDFDocument({
+        margin: 40,
+        size: "A4",
+      });
+
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+
+      doc.fontSize(18).font("Helvetica-Bold").text("TAX INVOICE", {
+        align: "center",
+      });
+
+      doc.moveDown(0.5);
+
+      doc
+        .fontSize(14)
+        .font("Helvetica-Bold")
+        .text("Merxenta Global Private Limited");
+
+      doc
+        .fontSize(10)
+        .font("Helvetica")
+        .text("H.No. 999/9, Gurgaon, Haryana")
+        .text("Phone: 0120-2562111")
+        .text("GSTIN: XXXXXXXXXX");
+
+      doc.moveDown(1);
+
+      const leftX = 40;
+      const rightX = 330;
+      let y = doc.y;
+
+      doc.fontSize(11).font("Helvetica-Bold").text("Bill To:", leftX, y);
+
+      doc
+        .fontSize(10)
+        .font("Helvetica")
+        .text(`Name: ${customer.name || "-"}`, leftX, y + 18)
+        .text(`Phone: ${customer.phone || "-"}`, leftX, y + 34)
+        .text(`Address: ${customer.address || "-"}`, leftX, y + 50)
+        .text(`Pincode: ${customer.pincode || "-"}`, leftX, y + 66);
+
+      doc
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .text("Invoice Details:", rightX, y);
+
+      doc
+        .fontSize(10)
+        .font("Helvetica")
+        .text(
+          `Invoice No: ${invoice.invoice_number || invoice.id}`,
+          rightX,
+          y + 18
+        )
+        .text(
+          `Invoice Date: ${
+            new Date(invoice.createdAt || Date.now())
+              .toISOString()
+              .split("T")[0]
+          }`,
+          rightX,
+          y + 34
+        )
+        .text(`Bill No: ${bill.bill_number || bill.id}`, rightX, y + 50)
+        .text(`Store Code: ${bill.store_code || "-"}`, rightX, y + 66);
+
+      doc.moveDown(5);
+
+      const tableTop = doc.y + 10;
+      const cols = {
+        sno: 40,
+        code: 70,
+        desc: 150,
+        wt: 300,
+        rate: 360,
+        mc: 420,
+        amt: 480,
+      };
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .text("S.No", cols.sno, tableTop)
+        .text("Code", cols.code, tableTop)
+        .text("Description", cols.desc, tableTop)
+        .text("Net Wt", cols.wt, tableTop, { width: 45, align: "right" })
+        .text("Rate", cols.rate, tableTop, { width: 45, align: "right" })
+        .text("MC", cols.mc, tableTop, { width: 45, align: "right" })
+        .text("Amount", cols.amt, tableTop, { width: 60, align: "right" });
+
+      doc.moveTo(40, tableTop + 14).lineTo(555, tableTop + 14).stroke();
+
+      let rowY = tableTop + 22;
+      doc.font("Helvetica").fontSize(9);
+
+      billItems.forEach((item, index) => {
+        if (rowY > 730) {
+          doc.addPage();
+          rowY = 50;
+        }
+
+        doc
+          .text(String(index + 1), cols.sno, rowY)
+          .text(item.product_code || "-", cols.code, rowY, { width: 70 })
+          .text(item.description || "-", cols.desc, rowY, { width: 120 })
+          .text(toNumber(item.net_weight).toFixed(3), cols.wt, rowY, {
+            width: 45,
+            align: "right",
+          })
+          .text(toNumber(item.rate).toFixed(2), cols.rate, rowY, {
+            width: 45,
+            align: "right",
+          })
+          .text(
+            `${toNumber(item.making_charge_percent).toFixed(2)}%`,
+            cols.mc,
+            rowY,
+            {
+              width: 45,
+              align: "right",
+            }
+          )
+          .text(toNumber(item.total_amount).toFixed(2), cols.amt, rowY, {
+            width: 60,
+            align: "right",
+          });
+
+        rowY += 22;
+      });
+
+      doc.moveTo(40, rowY).lineTo(555, rowY).stroke();
+
+      rowY += 15;
+
+      doc.font("Helvetica-Bold").fontSize(10).text("Summary", 360, rowY);
+
+      rowY += 18;
+      doc.font("Helvetica").fontSize(10);
+      doc.text(`Subtotal: ${summary.subtotal.toFixed(2)}`, 360, rowY);
+      rowY += 16;
+      doc.text(`CGST: ${summary.cgst.toFixed(2)}`, 360, rowY);
+      rowY += 16;
+      doc.text(`SGST: ${summary.sgst.toFixed(2)}`, 360, rowY);
+      rowY += 16;
+      doc.text(`Round Off: ${summary.round_off.toFixed(2)}`, 360, rowY);
+      rowY += 16;
+      doc
+        .font("Helvetica-Bold")
+        .text(`Final Amount: ${summary.final_amount.toFixed(2)}`, 360, rowY);
+
+      rowY += 35;
+
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .text("Note: This is computer generated invoice", 40, rowY)
+        .text("Terms:", 40, rowY + 18)
+        .text("1. No warranty on physical damage", 55, rowY + 34)
+        .text("2. Goods once sold not returnable", 55, rowY + 48);
+
+      doc.end();
+
+      stream.on("finish", () => {
+        resolve({
+          fileName,
+          filePath,
+          relativePath: `/uploads/invoices/${fileName}`,
+        });
+      });
+
+      stream.on("error", reject);
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+export const createInvoiceFromBill = async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const { bill_id, customer } = req.body;
+
+    if (!bill_id) throw new Error("bill_id is required");
+    if (!customer || !customer.phone || !customer.name) {
+      throw new Error("Customer name and phone are required");
+    }
+
+    const bill = await Bill.findByPk(bill_id, { transaction: t });
+    if (!bill) throw new Error("Bill not found");
+
+    const billItems = await BillItem.findAll({
+      where: { bill_id },
+      transaction: t,
+      raw: true,
+    });
+    if (!billItems.length) throw new Error("No items found in this bill");
+
+    const cleanPhone = normalizePhone(customer.phone);
+
+    const [cust] = await Customer.findOrCreate({
+      where: {
+        phone: cleanPhone,
+        store_code: bill.store_code,
+      },
+      defaults: {
+        name: String(customer.name).trim(),
+        phone: cleanPhone,
+        address: customer.address || "",
+        pincode: customer.pincode || "",
+        pan_card_number: customer.pan_card_number || "",
+        store_code: bill.store_code,
+        organization_id: bill.organization_id,
+      },
+      transaction: t,
+    });
+
+    await cust.update(
+      {
+        name: customer.name || cust.name,
+        address: customer.address || cust.address,
+        pincode: customer.pincode || cust.pincode,
+        pan_card_number: customer.pan_card_number || cust.pan_card_number,
+      },
+      { transaction: t }
+    );
+
+    let subtotal = 0;
+    billItems.forEach((item) => {
+      subtotal += toNumber(item.total_amount);
+    });
+
+    const cgst = subtotal * 0.015;
+    const sgst = subtotal * 0.015;
+    const totalWithTax = subtotal + cgst + sgst;
+    const roundOff = Math.round(totalWithTax) - totalWithTax;
+    const finalAmount = totalWithTax + roundOff;
+
+    const invoiceNumber = generateInvoiceNumber(bill.store_code);
+
+    const invoice = await Invoice.create(
+      {
+        invoice_number: invoiceNumber,
+        bill_id,
+        customer_id: cust.id,
+        total_amount: Number(finalAmount.toFixed(2)),
+        received_amount: 0,
+        pending_amount: Number(finalAmount.toFixed(2)),
+        status: "UNPAID",
+        store_code: bill.store_code,
+        organization_id: bill.organization_id,
+      },
+      { transaction: t }
+    );
+
+    for (const item of billItems) {
+      await InvoiceItem.create(
+        {
+          invoice_id: invoice.id,
+          item_id: item.item_id,
+          product_code: item.product_code,
+          description: item.description,
+          net_weight: item.net_weight,
+          rate: item.rate,
+          making_charge_percent: item.making_charge_percent,
+          making_charge_value: item.making_charge_value,
+          total_amount: item.total_amount,
+        },
+        { transaction: t }
+      );
+    }
+
+    await LedgerEntry.create(
+      {
+        customer_id: cust.id,
+        type: "DEBIT",
+        amount: Number(finalAmount.toFixed(2)),
+        reference_type: "INVOICE",
+        reference_id: invoice.id,
+        description: `Invoice #${invoice.invoice_number} created`,
+        organization_id: bill.organization_id,
+        store_code: bill.store_code,
+      },
+      { transaction: t }
+    );
+
+    const summary = {
+      subtotal: Number(subtotal.toFixed(2)),
+      cgst: Number(cgst.toFixed(2)),
+      sgst: Number(sgst.toFixed(2)),
+      total_with_tax: Number(totalWithTax.toFixed(2)),
+      round_off: Number(roundOff.toFixed(2)),
+      final_amount: Number(finalAmount.toFixed(2)),
+    };
+
+    const pdfResult = await generateInvoicePdf({
+      invoice,
+      bill,
+      customer: cust,
+      billItems,
+      summary,
+    });
+
+    await invoice.update(
+      {
+        pdf_path: pdfResult.relativePath,
+      },
+      { transaction: t }
+    );
+
+    await t.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Invoice created successfully",
+      data: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        pdf_path: pdfResult.relativePath,
+        header: {
+          company_name: "Merxenta Global Private Limited",
+          address: "H.No. 999/9, Gurgaon, Haryana",
+          phone: "0120-2562111",
+          gstin: "XXXXXXXX",
+        },
+        customer_details: {
+          name: cust.name,
+          phone: cust.phone,
+          address: cust.address,
+          invoice_no: invoice.invoice_number,
+          invoice_date: new Date().toISOString().split("T")[0],
+        },
+        items: billItems.map((item, index) => ({
+          sno: index + 1,
+          product_code: item.product_code,
+          description: item.description,
+          hsn_code: "71131913",
+          purity: "18KT",
+          gross_weight: item.net_weight,
+          net_weight: item.net_weight,
+          rate: item.rate,
+          value: Number(
+            (toNumber(item.net_weight) * toNumber(item.rate)).toFixed(2)
+          ),
+          making_charge_percent: item.making_charge_percent,
+          making_charge_value: item.making_charge_value,
+          amount: item.total_amount,
+        })),
+        summary,
+        footer: {
+          note: "This is computer generated invoice",
+          terms: [
+            "No warranty on physical damage",
+            "Goods once sold not returnable",
+          ],
+        },
+      },
+    });
+  } catch (error) {
+    await t.rollback();
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
 export const createBill = async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
-    if (!req.user?.organization_id || !req.user?.store_code) {
+    const {
+      organization_id,
+      store_code: loginStoreCode,
+      organization_level,
+    } = resolveUserScope(req.user);
+
+    if (!organization_id || !loginStoreCode) {
       await t.rollback();
       return res.status(401).json({
         success: false,
-        message: "organization_id or store_code missing in req.user",
+        message: "Unable to resolve logged-in user entity",
+        debug_user: req.user || null,
       });
     }
 
@@ -67,7 +509,7 @@ export const createBill = async (req, res) => {
     }
 
     const cleanStoreCode = String(
-      store_code || req.user.store_code || ""
+      store_code || loginStoreCode || ""
     ).trim().toUpperCase();
 
     if (!cleanStoreCode) {
@@ -84,19 +526,16 @@ export const createBill = async (req, res) => {
     });
 
     if (!store) {
-      throw new Error("Store not found");
+      throw new Error(`Store not found for code ${cleanStoreCode}`);
     }
 
-    // =========================
-    // CUSTOMER FIND / CREATE
-    // =========================
     let finalCustomer = null;
 
     if (customer_id) {
       finalCustomer = await Customer.findOne({
         where: {
           id: customer_id,
-          organization_id: req.user.organization_id,
+          organization_id,
           store_code: cleanStoreCode,
         },
         transaction: t,
@@ -105,26 +544,23 @@ export const createBill = async (req, res) => {
       if (!finalCustomer) {
         throw new Error("Customer not found for this entity");
       }
-    } else if (customer && (customer.phone || customer.pan_card_number || customer.name)) {
+    } else if (
+      customer &&
+      (customer.phone || customer.pan_card_number || customer.name)
+    ) {
       const cleanPhone = normalizePhone(customer.phone);
       const cleanPan = customer.pan_card_number
         ? String(customer.pan_card_number).trim().toUpperCase()
         : null;
 
       const orConditions = [];
-
-      if (cleanPhone) {
-        orConditions.push({ phone: cleanPhone });
-      }
-
-      if (cleanPan) {
-        orConditions.push({ pan_card_number: cleanPan });
-      }
+      if (cleanPhone) orConditions.push({ phone: cleanPhone });
+      if (cleanPan) orConditions.push({ pan_card_number: cleanPan });
 
       if (orConditions.length > 0) {
         finalCustomer = await Customer.findOne({
           where: {
-            organization_id: req.user.organization_id,
+            organization_id,
             store_code: cleanStoreCode,
             [Op.or]: orConditions,
           },
@@ -144,8 +580,8 @@ export const createBill = async (req, res) => {
             address: customer.address ? String(customer.address).trim() : null,
             pan_card_number: cleanPan,
             pincode: customer.pincode ? String(customer.pincode).trim() : null,
-            organization_id: req.user.organization_id,
-            organization_level: req.user.organization_level || null,
+            organization_id,
+            organization_level,
             store_code: cleanStoreCode,
           },
           { transaction: t }
@@ -153,15 +589,17 @@ export const createBill = async (req, res) => {
       }
     }
 
-    // =========================
-    // BILL CALCULATION
-    // =========================
     const preparedItems = [];
     let grandTotal = 0;
 
     for (const row of items) {
       const item_id = row.item_id;
-      const qty = toNumber(row.qty || 1);
+
+      const qty =
+        row.qty === undefined || row.qty === null || row.qty === ""
+          ? 1
+          : toNumber(row.qty);
+
       const net_weight = toNumber(row.net_weight);
       const rate = toNumber(row.rate);
       const making_charge_percent = toNumber(row.making_charge_percent);
@@ -172,6 +610,14 @@ export const createBill = async (req, res) => {
 
       if (qty <= 0) {
         throw new Error(`Invalid qty for item ${item_id}`);
+      }
+
+      if (net_weight <= 0) {
+        throw new Error(`Invalid net_weight for item ${item_id}`);
+      }
+
+      if (rate <= 0) {
+        throw new Error(`Invalid rate for item ${item_id}`);
       }
 
       const dbItem = await Item.findOne({
@@ -243,9 +689,6 @@ export const createBill = async (req, res) => {
     const dueAmount = grandTotal - paidAmount;
     const billNumber = generateBillNumber(cleanStoreCode);
 
-    // =========================
-    // BILL CREATE
-    // =========================
     const bill = await Bill.create(
       {
         bill_number: billNumber,
@@ -260,9 +703,6 @@ export const createBill = async (req, res) => {
       { transaction: t }
     );
 
-    // =========================
-    // BILL ITEMS + STOCK UPDATE + MOVEMENT
-    // =========================
     for (const row of preparedItems) {
       const updatedQty = row.openingQty - row.qty;
       const updatedWeight = row.openingWeight - row.net_weight;
@@ -297,16 +737,12 @@ export const createBill = async (req, res) => {
           movement_type: "sale",
           reference_type: "BILL",
           reference_id: bill.id,
-
           qty: row.qty,
           weight: row.net_weight,
-
           opening_available_qty: row.openingQty,
           closing_available_qty: updatedQty,
-
           opening_available_weight: row.openingWeight,
           closing_available_weight: updatedWeight,
-
           remarks: `Item sold via billing (${billNumber})`,
         },
         { transaction: t }
@@ -321,15 +757,11 @@ export const createBill = async (req, res) => {
       );
     }
 
-    // =========================
-    // LEDGER ENTRY
-    // =========================
     if (finalCustomer) {
-      // bill amount debit
       await LedgerEntry.create(
         {
           customer_id: finalCustomer.id,
-          organization_id: req.user.organization_id,
+          organization_id,
           store_code: cleanStoreCode,
           bill_id: bill.id,
           type: "DEBIT",
@@ -340,12 +772,11 @@ export const createBill = async (req, res) => {
         { transaction: t }
       );
 
-      // payment received credit
       if (paidAmount > 0) {
         await LedgerEntry.create(
           {
             customer_id: finalCustomer.id,
-            organization_id: req.user.organization_id,
+            organization_id,
             store_code: cleanStoreCode,
             bill_id: bill.id,
             type: "CREDIT",
