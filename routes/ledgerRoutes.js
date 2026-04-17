@@ -1,5 +1,5 @@
 import express from "express";
-
+import {auth} from "../middlewares/authMiddleware.js"
 // Import all your screenshot controllers
 import {
   createCustomer,
@@ -42,7 +42,7 @@ router.get("/customer/:id", getCustomer);
 // router.get("/payment/invoice/:invoice_id", getPaymentsByInvoice);
 
 // ==================== LEDGER ROUTES ====================
-router.get("/ledger", getLedger);
-router.get("/ledger/customer/:customer_id", getCustomerLedgerDetail);
+router.get("/ledger", auth,getLedger);
+router.get("/ledger/customer/:customer_id",auth, getCustomerLedgerDetail);
 
 export default router;

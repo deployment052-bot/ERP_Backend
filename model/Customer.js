@@ -5,47 +5,65 @@ const Customer = sequelize.define(
   "Customer",
   {
     id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.BIGINT,
       autoIncrement: true,
       primaryKey: true,
     },
+
     name: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(150),
       allowNull: false,
     },
+
     phone: {
-      type: DataTypes.STRING,
-      validate: {
-        isNumeric: true,
-        len: [10, 15],
-      },
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      unique: "uq_customer_phone_store",
     },
+
     address: {
       type: DataTypes.TEXT,
-    },
-    
-    pan_card_number: {
-      type: DataTypes.STRING,
-    },
-    pincode: {
-      type: DataTypes.STRING,
-    },
-    organization_id: {
-      type: DataTypes.INTEGER,
       allowNull: true,
     },
+
+    pan_card_number: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+
+    pincode: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+    },
+
     store_code: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      unique: "uq_customer_phone_store",
+    },
+
+    organization_id: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+    },
+
+    organization_level: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+    },
+
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
   },
   {
     tableName: "customers",
+    freezeTableName: true,
     timestamps: true,
-    indexes: [
-      { fields: ["organization_id"] },
-      { fields: ["phone"] },
-      { fields: ["store_code"] },
-    ],
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
   }
 );
 

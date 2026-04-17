@@ -1,135 +1,172 @@
 // controllers/LedgerEntry.js
-// import { LedgerEntry, Customer, sequelize } from "../models/index.js";
-import Customer from "../model/Customer.js"
-import LedgerEntry from "../model/LedgerEntry.js"
-import sequelize from "../config/db.js"
-import { Op } from "sequelize";
+
+import Customer from "../model/Customer.js";
+import LedgerEntry from "../model/LedgerEntry.js";
+import Bill from "../model/Bill.js"
+import { Op, fn, literal } from "sequelize";
 
 /**
- * @desc    Get ledger summary for all customers
+ * @desc    Get ledger dashboard summary + client wise ledger
  * @route   GET /api/ledger
  */
 export const getLedger = async (req, res) => {
   try {
-    const { store_code, page = 1, limit = 10, search } = req.query;
-
-    // 🔴 OPTIONAL AUTH: Works with or without middleware
-    const organization_id = req.user?.organization_id || 
-                           req.user?.id || 
-                           req.auth?.organization_id ||
-                           req.auth?.id ||
-                           1; // Default fallback
-
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    // 🔍 Customer filter
-    const customerWhere = { organization_id };
-
-    if (store_code) customerWhere.store_code = store_code;
-
-    if (search) {
-      customerWhere.name = { [Op.like]: `%${search}%` };
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated. req.user is missing.",
+      });
     }
 
-    // ================= COUNT =================
-    const countQuery = await Customer.findAll({
-      where: customerWhere,
-      include: [
-        {
-          model: LedgerEntry,
-          as: "ledger_entries",
-          where: { organization_id },
-          required: true,
-          attributes: [],
-        },
+    const { organization_id } = req.user;
+    const { search = "" } = req.query;
+
+    if (!organization_id) {
+      return res.status(400).json({
+        success: false,
+        message: "organization_id is missing in req.user",
+      });
+    }
+
+    const ledgerWhere = {
+      organization_id,
+    };
+
+    const customerWhere = {
+      organization_id,
+    };
+
+    if (search?.trim()) {
+      customerWhere[Op.or] = [
+        { name: { [Op.iLike]: `%${search.trim()}%` } },
+        { phone: { [Op.iLike]: `%${search.trim()}%` } },
+      ];
+    }
+
+    // ===============================
+    // SUMMARY CARDS
+    // ===============================
+    const summaryRaw = await LedgerEntry.findOne({
+      where: ledgerWhere,
+      attributes: [
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "total_sales",
+        ],
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "goods_receipt",
+        ],
       ],
-      attributes: ["id"],
-      group: ["Customer.id"],
+      raw: true,
     });
 
-    const totalCount = countQuery.length;
+    const summary = {
+      total_sales: Number(summaryRaw?.total_sales || 0),
+      loss: 0,
+      goods_receipt: Number(summaryRaw?.goods_receipt || 0),
+    };
 
-    // ================= DATA =================
-    const data = await LedgerEntry.findAll({
+    // ===============================
+    // CLIENT WISE TABLE
+    // ===============================
+    const clientRows = await LedgerEntry.findAll({
+      where: ledgerWhere,
       attributes: [
         "customer_id",
         [
-          sequelize.fn(
-            "SUM",
-            sequelize.literal(
-              `CASE WHEN "LedgerEntry"."type"='DEBIT' THEN "LedgerEntry"."amount" ELSE 0 END`
+          fn(
+            "COUNT",
+            literal(
+              `DISTINCT CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN "LedgerEntry"."reference_id" END`
             )
           ),
-          "total_debit",
+          "total_deals",
         ],
         [
-          sequelize.fn(
-            "SUM",
-            sequelize.literal(
-              `CASE WHEN "LedgerEntry"."type"='CREDIT' THEN "LedgerEntry"."amount" ELSE 0 END`
-            )
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN "LedgerEntry"."amount" ELSE 0 END`)
+            ),
+            0
           ),
-          "total_credit",
+          "total_amount",
         ],
         [
-          sequelize.fn("MAX", sequelize.col("LedgerEntry.createdAt")),
-          "last_transaction",
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN "LedgerEntry"."amount" ELSE 0 END`)
+            ),
+            0
+          ),
+          "received_amount",
         ],
         [
-          sequelize.fn("COUNT", sequelize.col("LedgerEntry.id")),
-          "transaction_count",
+          literal(`
+            COALESCE(SUM(CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN "LedgerEntry"."amount" ELSE 0 END), 0)
+            -
+            COALESCE(SUM(CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN "LedgerEntry"."amount" ELSE 0 END), 0)
+          `),
+          "pending_amount",
         ],
       ],
       include: [
         {
           model: Customer,
+          as: "Customer",
+          attributes: ["id", "name", "phone", "address", "store_code"],
           where: customerWhere,
-          attributes: ["id", "name", "phone", "store_code"],
           required: true,
         },
       ],
-      where: { organization_id },
       group: ["LedgerEntry.customer_id", "Customer.id"],
-      limit: limitNum,
-      offset: offset,
-      subQuery: false,
-      order: [[sequelize.literal("last_transaction"), "DESC"]],
+      order: [[literal(`"pending_amount"`), "DESC"]],
     });
 
-    // ================= FORMAT =================
-    const result = data.map((d) => {
-      const debit = parseFloat(d.dataValues.total_debit || 0);
-      const credit = parseFloat(d.dataValues.total_credit || 0);
-      const pending = debit - credit;
+    const clients = clientRows.map((row) => ({
+      customer_id: row.customer_id,
+      client_name: row.Customer?.name || "",
+      phone: row.Customer?.phone || "",
+      address: row.Customer?.address || "",
+      store_code: row.Customer?.store_code || "",
+      total_deals: Number(row.get("total_deals") || 0),
+      total_amount: Number(row.get("total_amount") || 0),
+      received_amount: Number(row.get("received_amount") || 0),
+      pending_amount: Number(row.get("pending_amount") || 0),
+    }));
 
-      return {
-        customer_id: d.customer_id,
-        name: d.Customer?.name,
-        phone: d.Customer?.phone,
-        store_code: d.Customer?.store_code,
-        total_deals: Math.floor(parseInt(d.dataValues.transaction_count) / 2),
-        total_amount: debit.toFixed(2),
-        received_amount: credit.toFixed(2),
-        pending_amount: pending.toFixed(2),
-        last_transaction: d.dataValues.last_transaction,
-      };
-    });
-
-    res.json({
+    return res.status(200).json({
       success: true,
-      total: totalCount,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(totalCount / limitNum),
-      data: result,
+      message: "Ledger dashboard fetched successfully",
+      data: {
+        summary,
+        clients,
+      },
     });
-  } catch (err) {
-    console.error("Ledger Error:", err);
-    res.status(500).json({
+  } catch (error) {
+    console.error("Ledger Error:", error);
+    return res.status(500).json({
       success: false,
-      error: err.message,
+      message: "Failed to fetch ledger",
+      error: error.message,
     });
   }
 };
@@ -138,27 +175,27 @@ export const getLedger = async (req, res) => {
  * @desc    Get detailed ledger for one customer
  * @route   GET /api/ledger/customer/:customer_id
  */
+
 export const getCustomerLedgerDetail = async (req, res) => {
   try {
     const customer_id = Number(req.params.customer_id);
-    
-    // 🔴 OPTIONAL AUTH: Works with or without middleware
-    const organization_id = req.user?.organization_id || 
-                           req.user?.id || 
-                           req.auth?.organization_id ||
-                           req.auth?.id ||
-                           1; // Default fallback
 
     if (isNaN(customer_id)) {
       return res.status(400).json({
         success: false,
-        error: "Invalid customer_id",
+        message: "Invalid customer_id",
       });
     }
 
-    // 🔍 Customer check
+    const organization_id = req.user?.organization_id || null;
+
+    const customerWhere = { id: customer_id };
+    if (organization_id) {
+      customerWhere.organization_id = organization_id;
+    }
+
     const customer = await Customer.findOne({
-      where: { id: customer_id, organization_id },
+      where: customerWhere,
     });
 
     if (!customer) {
@@ -168,66 +205,106 @@ export const getCustomerLedgerDetail = async (req, res) => {
       });
     }
 
-    // 🔍 Ledger entries
+    const ledgerWhere = { customer_id };
+    if (organization_id) {
+      ledgerWhere.organization_id = organization_id;
+    }
+
     const entries = await LedgerEntry.findAll({
-      where: { customer_id, organization_id },
+      where: ledgerWhere,
       order: [["createdAt", "ASC"]],
+      raw: true,
     });
 
-    let balance = 0;
+    const debitEntries = entries.filter((e) => e.type === "DEBIT");
+    const creditEntries = entries.filter((e) => e.type === "CREDIT");
 
-    const detailed = entries.map((entry) => {
-      const amount = parseFloat(entry.amount);
+    let totalCreditPool = creditEntries.reduce(
+      (sum, e) => sum + parseFloat(e.amount || 0),
+      0
+    );
 
-      if (entry.type === "DEBIT") {
-        balance += amount;
-      } else {
-        balance -= amount;
+    const rows = [];
+
+    for (const entry of debitEntries) {
+      const debitAmount = parseFloat(entry.amount || 0);
+
+      let receivedAmount = 0;
+      if (totalCreditPool > 0) {
+        receivedAmount = Math.min(totalCreditPool, debitAmount);
+        totalCreditPool -= receivedAmount;
       }
 
-      return {
-        id: entry.id,
+      const pendingAmount = debitAmount - receivedAmount;
+
+      let invoiceNumber = entry.reference_id;
+      if (entry.reference_type === "BILL" && entry.reference_id) {
+        const billWhere = { id: entry.reference_id };
+        if (organization_id) {
+          billWhere.organization_id = organization_id;
+        }
+
+        const bill = await Bill.findOne({
+          where: billWhere,
+          attributes: ["id", "bill_number", "createdAt"],
+          raw: true,
+        });
+
+        if (bill) {
+          invoiceNumber = bill.bill_number;
+        }
+      }
+
+      rows.push({
+        ledger_id: entry.id,
+        invoice_number: invoiceNumber || "-",
         date: entry.createdAt,
-        type: entry.type,
-        amount: amount.toFixed(2),
-        description: entry.description,
+        total_amount: debitAmount,
+        received_amount: receivedAmount,
+        pending_amount: pendingAmount,
         reference_type: entry.reference_type,
         reference_id: entry.reference_id,
-        running_balance: balance.toFixed(2),
-      };
-    });
+        action: "View",
+      });
+    }
 
-    detailed.reverse();
+    const totalAmount = debitEntries.reduce(
+      (sum, e) => sum + parseFloat(e.amount || 0),
+      0
+    );
 
-    // 🔍 Summary
-    const totalDebit = entries
-      .filter((e) => e.type === "DEBIT")
-      .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const totalReceived = creditEntries.reduce(
+      (sum, e) => sum + parseFloat(e.amount || 0),
+      0
+    );
 
-    const totalCredit = entries
-      .filter((e) => e.type === "CREDIT")
-      .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const totalPending = totalAmount - totalReceived;
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone,
-        address: customer.address,
-        pan_card_number: customer.pan_card_number,
+      message: "Customer ledger detail fetched successfully",
+      data: {
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.address,
+          pan_card_number: customer.pan_card_number,
+          store_code: customer.store_code,
+        },
+        summary: {
+          total_amount: Number(totalAmount.toFixed(2)),
+          received_amount: Number(totalReceived.toFixed(2)),
+          pending_amount: Number(totalPending.toFixed(2)),
+        },
+        deals: rows.reverse(),
       },
-      summary: {
-        total_amount: totalDebit.toFixed(2),
-        received_amount: totalCredit.toFixed(2),
-        pending_amount: (totalDebit - totalCredit).toFixed(2),
-      },
-      entries: detailed,
     });
   } catch (err) {
     console.error("Ledger Detail Error:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
+      message: "Failed to fetch customer ledger detail",
       error: err.message,
     });
   }

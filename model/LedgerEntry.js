@@ -9,41 +9,52 @@ const LedgerEntry = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
+
     customer_id: {
       type: DataTypes.BIGINT,
       allowNull: false,
     },
+
     type: {
       type: DataTypes.ENUM("DEBIT", "CREDIT"),
       allowNull: false,
     },
+
     amount: {
-      type: DataTypes.DECIMAL(15, 2),
+      type: DataTypes.DECIMAL(12, 2),
       allowNull: false,
       defaultValue: 0,
     },
+
     reference_type: {
       type: DataTypes.STRING,
       allowNull: true,
     },
+
     reference_id: {
       type: DataTypes.BIGINT,
       allowNull: true,
     },
+
     description: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING,
       allowNull: true,
     },
+
     organization_id: {
       type: DataTypes.BIGINT,
-      allowNull: true,
+      allowNull: false,
     },
   },
   {
     tableName: "ledger_entries",
     timestamps: true,
-    createdAt: "created_at",
-    updatedAt: "updated_at",
+
+    // ✅ IMPORTANT FIX
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
+
+    freezeTableName: true,
   }
 );
 
