@@ -4,7 +4,7 @@ import {auth} from "../middlewares/authMiddleware.js"
 import {
   createCustomer,
   searchCustomers,
-  getCustomer,
+  getCustomer
 } from "../controller/customerController.js";
 
 // import {
@@ -22,6 +22,7 @@ import {
 import {
   getLedger,
   getCustomerLedgerDetail,
+  downloadLedgerExcel
 } from "../controller/ledgerController.js";
 
 const router = express.Router();
@@ -44,5 +45,7 @@ router.get("/customer/:id", getCustomer);
 // ==================== LEDGER ROUTES ====================
 router.get("/ledger", auth,getLedger);
 router.get("/ledger/customer/:customer_id",auth, getCustomerLedgerDetail);
+
+router.get("/ledger/download-excel", auth, downloadLedgerExcel);
 
 export default router;

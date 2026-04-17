@@ -5,65 +5,47 @@ const Customer = sequelize.define(
   "Customer",
   {
     id: {
-      type: DataTypes.BIGINT,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
     },
-
     name: {
-      type: DataTypes.STRING(150),
+      type: DataTypes.STRING,
       allowNull: false,
     },
-
     phone: {
-      type: DataTypes.STRING(20),
-      allowNull: true,
-      unique: "uq_customer_phone_store",
+      type: DataTypes.STRING,
+      validate: {
+        isNumeric: true,
+        len: [10, 15],
+      },
     },
-
     address: {
       type: DataTypes.TEXT,
-      allowNull: true,
     },
-
+    
     pan_card_number: {
-      type: DataTypes.STRING(20),
-      allowNull: true,
+      type: DataTypes.STRING,
     },
-
     pincode: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING,
+    },
+    organization_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
-
     store_code: {
-      type: DataTypes.STRING(50),
-      allowNull: false,
-      unique: "uq_customer_phone_store",
-    },
-
-    organization_id: {
-      type: DataTypes.BIGINT,
-      allowNull: false,
-    },
-
-    organization_level: {
-      type: DataTypes.STRING(50),
-      allowNull: false,
-    },
-
-    is_active: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: true,
+      type: DataTypes.STRING,
     },
   },
   {
     tableName: "customers",
-    freezeTableName: true,
     timestamps: true,
-    createdAt: "createdAt",
-    updatedAt: "updatedAt",
+    indexes: [
+      { fields: ["organization_id"] },
+      { fields: ["phone"] },
+      { fields: ["store_code"] },
+    ],
   }
 );
 
