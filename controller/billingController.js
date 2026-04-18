@@ -11,7 +11,7 @@ import InvoiceItem from "../model/InvoiceItem.js";
 import LedgerEntry from "../model/LedgerEntry.js";
 import Store from "../model/Store.js";
 import Stock from "../model/stockrecord.js";
-import StockMovement from "../model/stockMovement.js";
+import StockMovement from "../model/stockmovement.js"
 import Item from "../model/item.js";
 import sequelize from "../config/db.js";
 
