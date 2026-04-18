@@ -7,8 +7,8 @@ import Bill from "../model/Bill.js"
 import Store from "../model/Store.js";
 import Invoice from "../model/invoices.js"; // if available in your project
 import ExcelJS from "exceljs";
-import { resolveDistrictOrganization } from "../utils/resolveDistrictOrganization.js"
-import { Op, fn, literal } from "sequelize";
+// import { resolveDistrictOrganization } from "../utils/resolveDistrictOrganization.js"
+import { Op, fn,col, literal } from "sequelize";
 
 
 /**
@@ -543,8 +543,6 @@ export const getCustomerLedgerDetail = async (req, res) => {
   }
 };
 
-
-
 const DISTRICT_LEVELS = ["district", "District", "DISTRICT"];
 
 const getStoreNameField = () => {
@@ -563,46 +561,78 @@ const getInvoiceNoField = () => {
   if (Invoice?.rawAttributes?.invoice_number) return "invoice_number";
   if (Invoice?.rawAttributes?.invoice_no) return "invoice_no";
   if (Invoice?.rawAttributes?.bill_no) return "bill_no";
-  return null;
+  return "invoice_number";
 };
 
 const getInvoiceDateField = () => {
   if (Invoice?.rawAttributes?.invoice_date) return "invoice_date";
   if (Invoice?.rawAttributes?.date) return "date";
   if (Invoice?.rawAttributes?.createdAt) return "createdAt";
-  return null;
+  return "invoice_date";
 };
 
-const getCustomerScopeOrganizationIds = async (districtId) => {
-  const storeNameField = getStoreNameField();
-  const storeCodeField = getStoreCodeField();
+const resolveDistrictOrganization = async (user) => {
+  if (!user) {
+    throw new Error("User not authenticated");
+  }
 
-  const stores = await Store.findAll({
+  if (!DISTRICT_LEVELS.includes(user.organization_level)) {
+    throw new Error("Only district users can access this ledger");
+  }
+
+  let districtOrg = await Store.findOne({
     where: {
-      district_id: districtId,
+      id: user.organization_id,
+      organization_level: "District",
     },
-    attributes: ["id", storeNameField, storeCodeField],
     raw: true,
   });
 
-  const storeIds = stores.map((s) => s.id);
+  if (districtOrg) return districtOrg;
 
-  return {
-    stores,
-    organizationIds: [districtId, ...storeIds],
-  };
+  districtOrg = await Store.findOne({
+    where: {
+      district_id: user.organization_id,
+      organization_level: "District",
+    },
+    order: [["id", "ASC"]],
+    raw: true,
+  });
+
+  if (districtOrg) return districtOrg;
+
+  if (user.store_code) {
+    districtOrg = await Store.findOne({
+      where: {
+        store_code: user.store_code,
+        organization_level: "District",
+      },
+      raw: true,
+    });
+
+    if (districtOrg) return districtOrg;
+  }
+
+  throw new Error("District office organization not found");
 };
 
-export const getDistrictLedgerDashboard = async (req, res) => {
+export const getDistrictLedger = async (req, res) => {
   try {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: "User not authenticated",
+        message: "User not authenticated. req.user is missing.",
       });
     }
 
     const { search = "" } = req.query;
+
+    if (!DISTRICT_LEVELS.includes(req.user.organization_level)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only district users can access this ledger",
+      });
+    }
 
     const districtOrg = await resolveDistrictOrganization(req.user);
 
@@ -610,107 +640,130 @@ export const getDistrictLedgerDashboard = async (req, res) => {
       organization_id: districtOrg.id,
     };
 
-    if (search.trim()) {
+    if (search?.trim()) {
       customerWhere[Op.or] = [
         { name: { [Op.iLike]: `%${search.trim()}%` } },
         { phone: { [Op.iLike]: `%${search.trim()}%` } },
       ];
     }
 
-    const customers = await Customer.findAll({
-      where: customerWhere,
-      attributes: ["id", "name", "phone", "address", "store_code", "organization_id"],
-      raw: true,
-    });
+    const ledgerWhere = {
+      organization_id: districtOrg.id,
+    };
 
-    const customerIds = customers.map((c) => c.id);
-
-    if (!customerIds.length) {
-      return res.status(200).json({
-        success: true,
-        message: "District ledger fetched successfully",
-        data: {
-          district: {
-            organization_id: districtOrg.id,
-            district_id: districtOrg.district_id,
-            store_code: districtOrg.store_code,
-            store_name: districtOrg.store_name,
-          },
-          summary: {
-            total_clients: 0,
-            total_deals: 0,
-            total_amount: 0,
-            received_amount: 0,
-            pending_amount: 0,
-          },
-          clients: [],
-        },
-      });
-    }
-
-    const invoiceRows = await Invoice.findAll({
-      where: {
-        organization_id: districtOrg.id,
-        customer_id: {
-          [Op.in]: customerIds,
-        },
-      },
+    const summaryRaw = await LedgerEntry.findOne({
+      where: ledgerWhere,
       attributes: [
-        "customer_id",
-        [fn("COUNT", literal(`DISTINCT "Invoice"."id"`)), "total_deals"],
-        [fn("COALESCE", fn("SUM", literal(`"Invoice"."total_amount"`)), 0), "total_amount"],
-        [fn("COALESCE", fn("SUM", literal(`"Invoice"."received_amount"`)), 0), "received_amount"],
-        [fn("COALESCE", fn("SUM", literal(`"Invoice"."pending_amount"`)), 0), "pending_amount"],
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "total_sales",
+        ],
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "goods_receipt",
+        ],
       ],
-      group: ["customer_id"],
       raw: true,
     });
 
-    const invoiceMap = new Map(
-      invoiceRows.map((row) => [Number(row.customer_id), row])
-    );
+    const clientRows = await Customer.findAll({
+      where: customerWhere,
+      attributes: [
+        "id",
+        "name",
+        "phone",
+        "address",
+        "store_code",
+        "organization_id",
+        [
+          fn("COUNT", literal(`DISTINCT "invoices"."id"`)),
+          "total_deals",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.total_amount`)), 0),
+          "total_amount",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.received_amount`)), 0),
+          "received_amount",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.pending_amount`)), 0),
+          "pending_amount",
+        ],
+      ],
+      include: [
+        {
+          model: Invoice,
+          as: "invoices",
+          attributes: [],
+          required: false,
+          where: {
+            organization_id: districtOrg.id,
+          },
+        },
+      ],
+      group: ["Customer.id"],
+      order: [[literal(`"pending_amount"`), "DESC"]],
+      subQuery: false,
+    });
 
-    const clients = customers
-      .map((customer) => {
-        const agg = invoiceMap.get(Number(customer.id)) || {};
-
-        return {
-          customer_id: customer.id,
-          client_name: customer.name || "",
-          phone: customer.phone || "",
-          address: customer.address || "",
-          total_deals: Number(agg.total_deals || 0),
-          total_amount: Number(agg.total_amount || 0),
-          received_amount: Number(agg.received_amount || 0),
-          pending_amount: Number(agg.pending_amount || 0),
-        };
-      })
-      .sort((a, b) => b.pending_amount - a.pending_amount);
+    const clients = clientRows.map((row) => ({
+      customer_id: row.id,
+      client_name: row.name || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      store_code: row.store_code || "",
+      source_type: "district",
+      source_name: districtOrg[getStoreNameField()] || "District Office",
+      source_store_code: districtOrg[getStoreCodeField()] || null,
+      total_deals: Number(row.get("total_deals") || 0),
+      total_amount: Number(row.get("total_amount") || 0),
+      received_amount: Number(row.get("received_amount") || 0),
+      pending_amount: Number(row.get("pending_amount") || 0),
+    }));
 
     const summary = {
+      total_sales: Number(summaryRaw?.total_sales || 0),
+      loss: 0,
+      goods_receipt: Number(summaryRaw?.goods_receipt || 0),
       total_clients: clients.length,
-      total_deals: clients.reduce((sum, item) => sum + item.total_deals, 0),
-      total_amount: clients.reduce((sum, item) => sum + item.total_amount, 0),
-      received_amount: clients.reduce((sum, item) => sum + item.received_amount, 0),
-      pending_amount: clients.reduce((sum, item) => sum + item.pending_amount, 0),
+      total_amount: clients.reduce((sum, item) => sum + Number(item.total_amount || 0), 0),
+      total_received: clients.reduce((sum, item) => sum + Number(item.received_amount || 0), 0),
+      total_pending: clients.reduce((sum, item) => sum + Number(item.pending_amount || 0), 0),
     };
 
     return res.status(200).json({
       success: true,
-      message: "District ledger fetched successfully",
+      message: "District ledger dashboard fetched successfully",
       data: {
         district: {
           organization_id: districtOrg.id,
           district_id: districtOrg.district_id,
-          store_code: districtOrg.store_code,
-          store_name: districtOrg.store_name,
+          store_code: districtOrg[getStoreCodeField()] || null,
+          store_name: districtOrg[getStoreNameField()] || "District Office",
+          organization_level: districtOrg.organization_level,
         },
         summary,
         clients,
       },
     });
   } catch (error) {
-    console.error("getDistrictLedgerDashboard error:", error);
+    console.error("District Ledger Error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch district ledger",
@@ -728,17 +781,9 @@ export const getDistrictLedgerClientDetail = async (req, res) => {
       });
     }
 
-    const { organization_id, organization_level } = req.user;
     const { customerId } = req.params;
 
-    if (!organization_id) {
-      return res.status(400).json({
-        success: false,
-        message: "organization_id is missing in req.user",
-      });
-    }
-
-    if (!DISTRICT_LEVELS.includes(organization_level)) {
+    if (!DISTRICT_LEVELS.includes(req.user.organization_level)) {
       return res.status(403).json({
         success: false,
         message: "Only district users can access this ledger detail",
@@ -752,162 +797,92 @@ export const getDistrictLedgerClientDetail = async (req, res) => {
       });
     }
 
-    const { stores, organizationIds } =
-      await getCustomerScopeOrganizationIds(organization_id);
+    const districtOrg = await resolveDistrictOrganization(req.user);
 
     const customer = await Customer.findOne({
       where: {
         id: customerId,
-        organization_id: {
-          [Op.in]: organizationIds,
-        },
+        organization_id: districtOrg.id,
       },
+      attributes: [
+        "id",
+        "name",
+        "phone",
+        "address",
+        "store_code",
+        "organization_id",
+      ],
       raw: true,
     });
 
     if (!customer) {
       return res.status(404).json({
         success: false,
-        message: "Client not found in your district scope",
+        message: "District client not found",
       });
     }
 
     const invoiceNoField = getInvoiceNoField();
     const invoiceDateField = getInvoiceDateField();
 
-    const referenceRows = await LedgerEntry.findAll({
+    const invoices = await Invoice.findAll({
       where: {
-        customer_id: customerId,
-        organization_id: {
-          [Op.in]: organizationIds,
-        },
+        customer_id: customer.id,
+        organization_id: districtOrg.id,
       },
       attributes: [
-        "reference_id",
-        [
-          fn(
-            "MIN",
-            col(`LedgerEntry.createdAt`)
-          ),
-          "entry_date",
-        ],
-        [
-          fn(
-            "COALESCE",
-            fn(
-              "SUM",
-              literal(
-                `CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN "LedgerEntry"."amount" ELSE 0 END`
-              )
-            ),
-            0
-          ),
-          "total_amount",
-        ],
-        [
-          fn(
-            "COALESCE",
-            fn(
-              "SUM",
-              literal(
-                `CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN "LedgerEntry"."amount" ELSE 0 END`
-              )
-            ),
-            0
-          ),
-          "received_amount",
-        ],
-        [
-          literal(`
-            COALESCE(SUM(CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN "LedgerEntry"."amount" ELSE 0 END), 0)
-            -
-            COALESCE(SUM(CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN "LedgerEntry"."amount" ELSE 0 END), 0)
-          `),
-          "pending_amount",
-        ],
+        "id",
+        ...(invoiceNoField ? [invoiceNoField] : []),
+        ...(invoiceDateField ? [invoiceDateField] : []),
+        "total_amount",
+        "received_amount",
+        "pending_amount",
       ],
-      group: ["LedgerEntry.reference_id"],
-      order: [[literal(`"entry_date"`), "DESC"]],
+      order: [
+        [invoiceDateField, "DESC"],
+        ["id", "DESC"],
+      ],
       raw: true,
     });
 
-    let invoiceMap = {};
-    if (Invoice && referenceRows.length) {
-      const referenceIds = referenceRows
-        .map((r) => r.reference_id)
-        .filter(Boolean);
-
-      if (referenceIds.length) {
-        const invoices = await Invoice.findAll({
-          where: {
-            id: {
-              [Op.in]: referenceIds,
-            },
-          },
-          attributes: [
-            "id",
-            ...(invoiceNoField ? [invoiceNoField] : []),
-            ...(invoiceDateField ? [invoiceDateField] : []),
-          ],
-          raw: true,
-        });
-
-        invoiceMap = invoices.reduce((acc, item) => {
-          acc[item.id] = item;
-          return acc;
-        }, {});
-      }
-    }
-
-    const detailRows = referenceRows.map((row) => {
-      const invoice = invoiceMap[row.reference_id] || {};
-      const invoiceNumber =
-        (invoiceNoField && invoice?.[invoiceNoField]) ||
-        `REF-${row.reference_id}`;
-      const invoiceDate =
-        (invoiceDateField && invoice?.[invoiceDateField]) || row.entry_date;
-
-      return {
-        reference_id: row.reference_id,
-        invoice_number: invoiceNumber,
-        date: invoiceDate,
-        total_amount: Number(row.total_amount || 0),
-        received_amount: Number(row.received_amount || 0),
-        pending_amount: Number(row.pending_amount || 0),
-        action: "View",
-      };
-    });
-
-    const sourceStore = stores.find(
-      (s) => Number(s.id) === Number(customer.organization_id)
-    );
+    const rows = invoices.map((inv) => ({
+      invoice_id: inv.id,
+      invoice_number: inv[invoiceNoField] || `INV-${inv.id}`,
+      date: inv[invoiceDateField]
+        ? new Date(inv[invoiceDateField]).toISOString().split("T")[0]
+        : null,
+      total_amount: Number(inv.total_amount || 0),
+      received_amount: Number(inv.received_amount || 0),
+      pending_amount: Number(inv.pending_amount || 0),
+      action: "View",
+    }));
 
     return res.status(200).json({
       success: true,
       message: "District client ledger detail fetched successfully",
       data: {
+        district: {
+          organization_id: districtOrg.id,
+          district_id: districtOrg.district_id,
+          store_code: districtOrg[getStoreCodeField()] || null,
+          store_name: districtOrg[getStoreNameField()] || "District Office",
+        },
         client: {
           id: customer.id,
           name: customer.name || "",
           phone: customer.phone || "",
           address: customer.address || "",
           store_code: customer.store_code || "",
-          source_type:
-            Number(customer.organization_id) === Number(organization_id)
-              ? "district"
-              : "store",
-          source_name:
-            Number(customer.organization_id) === Number(organization_id)
-              ? "District Office"
-              : sourceStore?.[getStoreNameField()] || "",
+          source_type: "district",
+          source_name: districtOrg[getStoreNameField()] || "District Office",
         },
         summary: {
-          total_deals: detailRows.length,
-          total_amount: detailRows.reduce((sum, item) => sum + item.total_amount, 0),
-          received_amount: detailRows.reduce((sum, item) => sum + item.received_amount, 0),
-          pending_amount: detailRows.reduce((sum, item) => sum + item.pending_amount, 0),
+          total_deals: rows.length,
+          total_amount: rows.reduce((sum, item) => sum + item.total_amount, 0),
+          received_amount: rows.reduce((sum, item) => sum + item.received_amount, 0),
+          pending_amount: rows.reduce((sum, item) => sum + item.pending_amount, 0),
         },
-        rows: detailRows,
+        rows,
       },
     });
   } catch (error) {

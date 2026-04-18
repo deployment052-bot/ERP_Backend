@@ -1,4 +1,4 @@
-import Store from "../model/Store";
+import Store from "../model/Store.js";
 
 export const resolveDistrictOrganization = async (user) => {
   if (!user) {
@@ -11,7 +11,6 @@ export const resolveDistrictOrganization = async (user) => {
     throw new Error("User is not a district user");
   }
 
-  // Case 1: token.organization_id already points to district office row
   let districtOrg = await Store.findOne({
     where: {
       id: user.organization_id,
@@ -22,7 +21,6 @@ export const resolveDistrictOrganization = async (user) => {
 
   if (districtOrg) return districtOrg;
 
-  // Case 2: token.organization_id is actually district_id
   districtOrg = await Store.findOne({
     where: {
       district_id: user.organization_id,
@@ -34,7 +32,6 @@ export const resolveDistrictOrganization = async (user) => {
 
   if (districtOrg) return districtOrg;
 
-  // Case 3: fallback by store_code from token
   if (user.store_code) {
     districtOrg = await Store.findOne({
       where: {
