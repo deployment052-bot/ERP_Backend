@@ -25,7 +25,7 @@ import {
 import {
   getLedger,
   getCustomerLedgerDetail,
-  downloadLedgerExcel,
+  downloadLedgerExcel,getDistrictLedger,getDistrictLedgerClientDetail
 } from "../controller/ledgerController.js";
 
 const router = express.Router();
@@ -52,5 +52,11 @@ router.get("/payment/tracker/:customer_id", auth, getPaymentTracker);
 router.get("/ledger", auth, getLedger);
 router.get("/ledger/customer/:customer_id", auth, getCustomerLedgerDetail);
 router.get("/ledger/download-excel", auth, downloadLedgerExcel);
+
+
+
+
+router.get("/district", auth, getDistrictLedger);
+router.get("/district/:customerId", auth, getDistrictLedgerClientDetail);
 
 export default router;
