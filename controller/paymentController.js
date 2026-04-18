@@ -8,7 +8,7 @@ import {
   Customer,
   sequelize,
 } from "../model/index.js";
-
+import Store from "../model/Store.js"
 const ALLOWED_PAYMENT_ROLES = [
   "manager",
   "tl",
@@ -719,6 +719,183 @@ export const getPaymentTracker = async (req, res) => {
       success: false,
       message: "Failed to fetch payment tracker",
       error: error.message,
+    });
+  }
+};
+
+
+
+const DISTRICT_LEVELS = ["district", "District", "DISTRICT"];
+
+const resolveDistrictOrganization = async (user) => {
+  if (!user) {
+    throw new Error("User not authenticated");
+  }
+
+  if (!DISTRICT_LEVELS.includes(user.organization_level)) {
+    throw new Error("Only district users can access this data");
+  }
+
+  let districtOrg = await Store.findOne({
+    where: {
+      id: user.organization_id,
+      organization_level: "District",
+    },
+    raw: true,
+  });
+
+  if (districtOrg) return districtOrg;
+
+  districtOrg = await Store.findOne({
+    where: {
+      district_id: user.organization_id,
+      organization_level: "District",
+    },
+    order: [["id", "ASC"]],
+    raw: true,
+  });
+
+  if (districtOrg) return districtOrg;
+
+  if (user.store_code) {
+    districtOrg = await Store.findOne({
+      where: {
+        store_code: user.store_code,
+        organization_level: "District",
+      },
+      raw: true,
+    });
+
+    if (districtOrg) return districtOrg;
+  }
+
+  throw new Error("District office organization not found");
+};
+
+
+
+export const getDistrictPaymentsByInvoice = async (req, res) => {
+  try {
+    const { invoice_id } = req.params;
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    if (!DISTRICT_LEVELS.includes(req.user.organization_level)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only district users can access payment tracker",
+      });
+    }
+
+    if (!invoice_id) {
+      return res.status(400).json({
+        success: false,
+        message: "invoice_id is required",
+      });
+    }
+
+    const districtOrg = await resolveDistrictOrganization(req.user);
+
+    const invoice = await Invoice.findOne({
+      where: {
+        id: invoice_id,
+        organization_id: districtOrg.id,
+      },
+      raw: true,
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: "District invoice not found",
+      });
+    }
+
+    const customer = await Customer.findOne({
+      where: {
+        id: invoice.customer_id,
+        organization_id: districtOrg.id,
+      },
+      attributes: ["id", "name", "phone", "address", "store_code", "organization_id"],
+      raw: true,
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "District customer not found for this invoice",
+      });
+    }
+
+    const payments = await Payment.findAll({
+      where: {
+        invoice_id: invoice.id,
+        organization_id: districtOrg.id,
+      },
+      order: [["payment_date", "DESC"], ["id", "DESC"]],
+      raw: true,
+    });
+
+    const totalPaid = payments.reduce(
+      (sum, p) => sum + parseFloat(p.amount || 0),
+      0
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "District invoice payment tracker fetched successfully",
+      district: {
+        organization_id: districtOrg.id,
+        district_id: districtOrg.district_id,
+        store_code: districtOrg.store_code,
+        store_name: districtOrg.store_name,
+        organization_level: districtOrg.organization_level,
+      },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+        store_code: customer.store_code,
+      },
+      invoice: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        customer_id: invoice.customer_id,
+        total_amount: Number(invoice.total_amount || 0),
+        received_amount: Number(invoice.received_amount || 0),
+        pending_amount: Number(invoice.pending_amount || 0),
+        status: invoice.status,
+        store_code: invoice.store_code,
+        invoice_date: invoice.invoice_date || invoice.createdAt || null,
+      },
+      count: payments.length,
+      total_paid: totalPaid.toFixed(2),
+      data: payments.map((p) => ({
+        id: p.id,
+        invoice_id: p.invoice_id,
+        amount: parseFloat(p.amount || 0).toFixed(2),
+        payment_method: p.payment_method || null,
+        financier: p.financier || null,
+        txn_id: p.txn_id || null,
+        operator: p.operator || null,
+        payment_date: p.payment_date || null,
+        store_code: p.store_code || null,
+        createdAt: p.createdAt || null,
+      })),
+    });
+  } catch (err) {
+    console.error("Get District Payments By Invoice Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch district invoice payments",
+      error: err.message,
     });
   }
 };

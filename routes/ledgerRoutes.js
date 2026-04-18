@@ -19,7 +19,7 @@ import {
   getPaymentsByInvoice,
   getPaymentsByCustomer,
   getPaymentInvoiceList,
-  getPaymentTracker,
+  getPaymentTracker,getDistrictPaymentsByInvoice
 } from "../controller/paymentController.js";
 
 import {
@@ -45,6 +45,7 @@ router.get("/customer/:id", auth, getCustomer);
 router.post("/payment", auth, createPayment);
 router.get("/payment/list", auth, getPaymentInvoiceList);
 router.get("/payment/invoice/:invoice_id", auth, getPaymentsByInvoice);
+
 router.get("/payment/customer/:customer_id", auth, getPaymentsByCustomer);
 router.get("/payment/tracker/:customer_id", auth, getPaymentTracker);
 
@@ -54,7 +55,7 @@ router.get("/ledger/customer/:customer_id", auth, getCustomerLedgerDetail);
 router.get("/ledger/download-excel", auth, downloadLedgerExcel);
 
 
-
+router.get("/payment/invoice-dis/:invoice_id", auth, getDistrictPaymentsByInvoice);
 router.get("/ledger/download-excel-district", auth,  downloadDistrictLedgerExcel);
 router.get("/district", auth, getDistrictLedger);
 router.get("/district/:customerId", auth, getDistrictLedgerClientDetail);
