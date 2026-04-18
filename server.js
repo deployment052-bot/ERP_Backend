@@ -13,6 +13,7 @@ import Audit from "./routes/Audit.js"
 import District from "./routes/districtRoute.js"
 import ladger from "./routes/ledgerRoutes.js"
 import Bill from "./routes/billRoute.js"
+import Activity from "./routes/activityRoutes.js"
 dotenv.config();
 
 const app = express();
@@ -56,6 +57,7 @@ app.use('/audit',Audit)
 app.use('/District',District)
 app.use('/ladger',ladger)
 app.use('/bill',Bill)
+app.use('/Activity',Activity)
 // Test route
 app.get("/", (req, res) => {
   res.status(200).json({

@@ -1,78 +1,35 @@
-import { DataTypes } from "sequelize";
-import sequelize from "../config/db.js";
+import ActivityLog from "../models/ActivityLog.js";
 
-const ActivityLog = sequelize.define(
-  "ActivityLog",
-  {
-    id: {
-      type: DataTypes.BIGINT,
-      autoIncrement: true,
-      primaryKey: true,
-    },
-
-    organization_id: {
-      type: DataTypes.BIGINT,
-      allowNull: true,
-    },
-
-    user_id: {
-      type: DataTypes.BIGINT,
-      allowNull: true,
-    },
-
-    action: {
-      type: DataTypes.STRING(100),
-      allowNull: false,
-    },
-
-    module_name: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-    },
-
-    reference_id: {
-      type: DataTypes.BIGINT,
-      allowNull: true,
-    },
-
-    reference_no: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-    },
-
-    title: {
-      type: DataTypes.STRING(255),
-      allowNull: false,
-    },
-
-    description: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-
-    meta: {
-      type: DataTypes.JSONB,
-      allowNull: true,
-      defaultValue: {},
-    },
-
-    icon: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-      defaultValue: "activity",
-    },
-
-    color: {
-      type: DataTypes.STRING(50),
-      allowNull: true,
-      defaultValue: "blue",
-    },
-  },
-  {
-    tableName: "activity_logs",
-    timestamps: true,
-    underscored: true,
+const createActivityLog = async ({
+  organization_id = null,
+  user_id = null,
+  action,
+  module_name = null,
+  reference_id = null,
+  reference_no = null,
+  title,
+  description = null,
+  meta = {},
+  icon = "activity",
+  color = "blue",
+}) => {
+  try {
+    await ActivityLog.create({
+      organization_id,
+      user_id,
+      action,
+      module_name,
+      reference_id,
+      reference_no,
+      title,
+      description,
+      meta,
+      icon,
+      color,
+    });
+  } catch (error) {
+    console.error("createActivityLog error:", error.message);
   }
-);
+};
 
-export default ActivityLog;
+export default createActivityLog;

@@ -13,575 +13,9 @@ import InvoiceItem from "../model/InvoiceItem.js";
 
 
 
-export const getDistrictDashboard = async (req, res) => {
-  try {
-    const user = req.user;
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized access",
-      });
-    }
 
-    if (
-      user.role !== "district_manager" &&
-      String(user.organization_level || "").toLowerCase() !== "district"
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Only district users can access this dashboard",
-      });
-    }
 
-    const districtId = Number(user.organization_id);
-    const districtCode = user.store_code || null;
-
-    if (!districtId) {
-      return res.status(400).json({
-        success: false,
-        message: "District organization_id not found for logged-in user",
-      });
-    }
-
-    // -----------------------------
-    // 1) District ke under stores
-    // -----------------------------
-    let districtStores = [];
-
-    try {
-      districtStores = await Store.findAll({
-        where: {
-          [Op.or]: [
-            { district_id: districtId },
-            ...(districtCode ? [{ district_code: districtCode }] : []),
-          ],
-        },
-        attributes: ["id", "store_name", "store_code", "district_id", "district_code"],
-        raw: true,
-      });
-    } catch (err) {
-      districtStores = [];
-    }
-
-    const storeIds = districtStores.map((s) => Number(s.id)).filter(Boolean);
-
-    // -----------------------------
-    // 2) District ke direct items
-    // -----------------------------
-    let districtItemRows = [];
-    try {
-      districtItemRows = await Item.findAll({
-        where: {
-          organization_id: districtId,
-        },
-        attributes: [
-          "id",
-          "article_code",
-          "sku_code",
-          "item_name",
-          "metal_type",
-          "category",
-          "details",
-          "purity",
-          "gross_weight",
-          "net_weight",
-          "stone_weight",
-          "stone_amount",
-          "making_charge",
-          "purchase_rate",
-          "sale_rate",
-          "hsn_code",
-          "unit",
-          "current_status",
-          "organization_id",
-          "createdAt",
-          "updatedAt",
-        ],
-        raw: true,
-      });
-    } catch (err) {
-      districtItemRows = [];
-    }
-
-    const districtItemIds = districtItemRows.map((i) => Number(i.id)).filter(Boolean);
-
-    // --------------------------------------
-    // 3) District ke direct stock rows
-    // --------------------------------------
-    let districtStockRows = [];
-    try {
-      districtStockRows = await Stock.findAll({
-        where: {
-          [Op.or]: [
-            { organization_id: districtId },
-            ...(districtItemIds.length ? [{ item_id: { [Op.in]: districtItemIds } }] : []),
-          ],
-        },
-        attributes: [
-          "id",
-          "organization_id",
-          "item_id",
-          "available_qty",
-          "available_weight",
-          "reserved_qty",
-          "reserved_weight",
-          "transit_qty",
-          "transit_weight",
-          "damaged_qty",
-          "damaged_weight",
-          "dead_qty",
-          "dead_weight",
-          "created_at",
-          "updated_at",
-        ],
-        include: [
-          {
-            model: Item,
-            attributes: [
-              "id",
-              "article_code",
-              "sku_code",
-              "item_name",
-              "metal_type",
-              "category",
-              "details",
-              "purity",
-              "gross_weight",
-              "net_weight",
-              "stone_weight",
-              "stone_amount",
-              "making_charge",
-              "purchase_rate",
-              "sale_rate",
-              "hsn_code",
-              "unit",
-              "current_status",
-              "organization_id",
-              "createdAt",
-              "updatedAt",
-            ],
-            required: false,
-          },
-        ],
-      });
-    } catch (err) {
-      districtStockRows = [];
-    }
-
-    // --------------------------------------
-    // 4) Stores ke stock rows
-    // --------------------------------------
-    let storeStockRows = [];
-    try {
-      if (storeIds.length) {
-        storeStockRows = await Stock.findAll({
-          where: {
-            organization_id: {
-              [Op.in]: storeIds,
-            },
-          },
-          attributes: [
-            "id",
-            "organization_id",
-            "item_id",
-            "available_qty",
-            "available_weight",
-            "reserved_qty",
-            "reserved_weight",
-            "transit_qty",
-            "transit_weight",
-            "damaged_qty",
-            "damaged_weight",
-            "dead_qty",
-            "dead_weight",
-            "created_at",
-            "updated_at",
-          ],
-          include: [
-            {
-              model: Item,
-              attributes: [
-                "id",
-                "article_code",
-                "sku_code",
-                "item_name",
-                "metal_type",
-                "category",
-                "details",
-                "purity",
-                "gross_weight",
-                "net_weight",
-                "stone_weight",
-                "stone_amount",
-                "making_charge",
-                "purchase_rate",
-                "sale_rate",
-                "hsn_code",
-                "unit",
-                "current_status",
-                "organization_id",
-                "createdAt",
-                "updatedAt",
-              ],
-              required: false,
-            },
-          ],
-        });
-      }
-    } catch (err) {
-      storeStockRows = [];
-    }
-
-    // --------------------------------------
-    // 5) Map district items with stock
-    // --------------------------------------
-    const districtStockMap = new Map();
-    for (const row of districtStockRows) {
-      const itemId = Number(row.item_id);
-      if (!districtStockMap.has(itemId)) {
-        districtStockMap.set(itemId, row);
-      }
-    }
-
-    const districtItems = districtItemRows.map((item) => {
-      const stock = districtStockMap.get(Number(item.id));
-
-      return {
-        item_id: item.id,
-        article_code: item.article_code || null,
-        sku_code: item.sku_code || null,
-        item_name: item.item_name || null,
-        metal_type: item.metal_type || null,
-        category: item.category || null,
-        details: item.details || null,
-        purity: item.purity || null,
-        gross_weight: Number(item.gross_weight || 0),
-        net_weight: Number(item.net_weight || 0),
-        stone_weight: Number(item.stone_weight || 0),
-        stone_amount: Number(item.stone_amount || 0),
-        making_charge: Number(item.making_charge || 0),
-        purchase_rate: Number(item.purchase_rate || 0),
-        sale_rate: Number(item.sale_rate || 0),
-        hsn_code: item.hsn_code || null,
-        unit: item.unit || null,
-        current_status: item.current_status || null,
-        available_qty: Number(stock?.available_qty || 0),
-        available_weight: Number(stock?.available_weight || 0),
-        reserved_qty: Number(stock?.reserved_qty || 0),
-        reserved_weight: Number(stock?.reserved_weight || 0),
-        transit_qty: Number(stock?.transit_qty || 0),
-        transit_weight: Number(stock?.transit_weight || 0),
-        damaged_qty: Number(stock?.damaged_qty || 0),
-        damaged_weight: Number(stock?.damaged_weight || 0),
-        dead_qty: Number(stock?.dead_qty || 0),
-        dead_weight: Number(stock?.dead_weight || 0),
-        stock_id: stock?.id || null,
-        has_stock: !!stock,
-        item_created_at: item.createdAt,
-        item_updated_at: item.updatedAt,
-      };
-    });
-
-    // --------------------------------------
-    // 6) Summary calculations
-    // --------------------------------------
-    let districtOwnStock = 0;
-    let retailStoresStocks = 0;
-    let totalStock = 0;
-
-    let totalAvailableQty = 0;
-    let totalReservedQty = 0;
-    let totalTransitQty = 0;
-    let totalDamagedQty = 0;
-    let totalDeadQty = 0;
-
-    let totalAvailableWeight = 0;
-    let totalReservedWeight = 0;
-    let totalTransitWeight = 0;
-    let totalDamagedWeight = 0;
-    let totalDeadWeight = 0;
-
-    let deadStockItems = 0;
-    let damagedStockItems = 0;
-    let transitGoods = 0;
-    let goldPriceValue = 0;
-    let silverPriceValue = 0;
-
-    for (const item of districtItems) {
-      const totalQty =
-        Number(item.available_qty || 0) +
-        Number(item.reserved_qty || 0) +
-        Number(item.transit_qty || 0);
-
-      const totalWeight =
-        Number(item.available_weight || 0) +
-        Number(item.reserved_weight || 0) +
-        Number(item.transit_weight || 0);
-
-      districtOwnStock += totalQty;
-      totalStock += totalQty;
-
-      totalAvailableQty += Number(item.available_qty || 0);
-      totalReservedQty += Number(item.reserved_qty || 0);
-      totalTransitQty += Number(item.transit_qty || 0);
-      totalDamagedQty += Number(item.damaged_qty || 0);
-      totalDeadQty += Number(item.dead_qty || 0);
-
-      totalAvailableWeight += Number(item.available_weight || 0);
-      totalReservedWeight += Number(item.reserved_weight || 0);
-      totalTransitWeight += Number(item.transit_weight || 0);
-      totalDamagedWeight += Number(item.damaged_weight || 0);
-      totalDeadWeight += Number(item.dead_weight || 0);
-
-      transitGoods += Number(item.transit_qty || 0);
-
-      if (Number(item.dead_qty || 0) > 0 || Number(item.dead_weight || 0) > 0) {
-        deadStockItems += 1;
-      }
-
-      if (
-        Number(item.damaged_qty || 0) > 0 ||
-        Number(item.damaged_weight || 0) > 0
-      ) {
-        damagedStockItems += 1;
-      }
-
-      const metalType = String(item.metal_type || "").toLowerCase();
-      const rate = Number(item.sale_rate || item.purchase_rate || 0);
-      const valueBase = totalWeight > 0 ? totalWeight : totalQty;
-
-      if (metalType === "gold") goldPriceValue += valueBase * rate;
-      if (metalType === "silver") silverPriceValue += valueBase * rate;
-    }
-
-    for (const row of storeStockRows) {
-      const availableQty = Number(row.available_qty || 0);
-      const reservedQty = Number(row.reserved_qty || 0);
-      const transitQty = Number(row.transit_qty || 0);
-      const damagedQty = Number(row.damaged_qty || 0);
-      const deadQty = Number(row.dead_qty || 0);
-
-      const availableWeight = Number(row.available_weight || 0);
-      const reservedWeight = Number(row.reserved_weight || 0);
-      const transitWeight = Number(row.transit_weight || 0);
-      const damagedWeight = Number(row.damaged_weight || 0);
-      const deadWeight = Number(row.dead_weight || 0);
-
-      const totalQty = availableQty + reservedQty + transitQty;
-      const totalWeight = availableWeight + reservedWeight + transitWeight;
-
-      retailStoresStocks += totalQty;
-      totalStock += totalQty;
-
-      totalAvailableQty += availableQty;
-      totalReservedQty += reservedQty;
-      totalTransitQty += transitQty;
-      totalDamagedQty += damagedQty;
-      totalDeadQty += deadQty;
-
-      totalAvailableWeight += availableWeight;
-      totalReservedWeight += reservedWeight;
-      totalTransitWeight += transitWeight;
-      totalDamagedWeight += damagedWeight;
-      totalDeadWeight += deadWeight;
-
-      transitGoods += transitQty;
-
-      if (deadQty > 0 || deadWeight > 0) {
-        deadStockItems += 1;
-      }
-
-      if (damagedQty > 0 || damagedWeight > 0) {
-        damagedStockItems += 1;
-      }
-
-      const metalType = String(row.Item?.metal_type || "").toLowerCase();
-      const rate = Number(row.Item?.sale_rate || row.Item?.purchase_rate || 0);
-      const valueBase = totalWeight > 0 ? totalWeight : totalQty;
-
-      if (metalType === "gold") goldPriceValue += valueBase * rate;
-      if (metalType === "silver") silverPriceValue += valueBase * rate;
-    }
-
-    // --------------------------------------
-    // 7) Store performance
-    // --------------------------------------
-    const storePerformance = districtStores.map((store) => {
-      const rows = storeStockRows.filter(
-        (x) => Number(x.organization_id) === Number(store.id)
-      );
-
-      let revenue = 0;
-      let stock_count = 0;
-
-      for (const row of rows) {
-        stock_count += 1;
-
-        const qty =
-          Number(row.available_qty || 0) +
-          Number(row.reserved_qty || 0) +
-          Number(row.transit_qty || 0);
-
-        const weight =
-          Number(row.available_weight || 0) +
-          Number(row.reserved_weight || 0) +
-          Number(row.transit_weight || 0);
-
-        const rate = Number(row.Item?.sale_rate || row.Item?.purchase_rate || 0);
-        const base = weight > 0 ? weight : qty;
-
-        revenue += base * rate;
-      }
-
-      return {
-        store_id: store.id,
-        store_name: store.store_name,
-        store_code: store.store_code,
-        revenue,
-        stock_count,
-      };
-    });
-
-    // --------------------------------------
-    // 8) Transit details
-    // --------------------------------------
-    let inTransitDetails = [];
-    try {
-      const transitRows = await StockTransferItem.findAll({
-        include: [
-          {
-            model: StockTransfer,
-            required: true,
-            where: {
-              status: {
-                [Op.in]: ["dispatched", "in_transit"],
-              },
-              [Op.or]: [
-                { to_district_id: districtId },
-                { from_district_id: districtId },
-                ...(districtCode
-                  ? [
-                      { to_district_code: districtCode },
-                      { from_district_code: districtCode },
-                    ]
-                  : []),
-              ],
-            },
-            attributes: ["id", "status", "tracking_number"],
-          },
-        ],
-        attributes: ["id", "item_id", "qty", "weight"],
-      });
-
-      inTransitDetails = transitRows.map((row) => ({
-        id: row.id,
-        item_id: row.item_id,
-        qty: Number(row.qty || 0),
-        weight: Number(row.weight || 0),
-        transfer: row.StockTransfer || null,
-      }));
-    } catch (err) {
-      inTransitDetails = [];
-    }
-
-    // --------------------------------------
-    // 9) Recent activities
-    // --------------------------------------
-    let recentActivities = [];
-    try {
-      recentActivities = await ActivityLog.findAll({
-        where: {
-          [Op.or]: [
-            { district_id: districtId },
-            { organization_id: districtId },
-            ...(districtCode ? [{ district_code: districtCode }] : []),
-          ],
-        },
-        attributes: ["id", "module", "action", "description", "created_at"],
-        order: [["created_at", "DESC"]],
-        limit: 5,
-        raw: true,
-      });
-    } catch (err) {
-      recentActivities = [];
-    }
-
-    // --------------------------------------
-    // 10) Profit & loss placeholder
-    // --------------------------------------
-    const profitLoss = [
-      { month: "Jan", amount: 520 },
-      { month: "Feb", amount: 550 },
-      { month: "Mar", amount: 580 },
-      { month: "Apr", amount: 560 },
-      { month: "May", amount: 620 },
-      { month: "Jun", amount: 650 },
-    ];
-
-    return res.status(200).json({
-      success: true,
-      message: "District dashboard fetched successfully",
-      data: {
-        district_id: districtId,
-        district_code: districtCode,
-
-        summary: {
-          total_stock: totalStock,
-          retail_stores_stocks: retailStoresStocks,
-          district_own_stock: districtOwnStock,
-          dead_stock_items: deadStockItems,
-          damaged_stock_items: damagedStockItems,
-          transit_goods: transitGoods,
-          gold_price_value: goldPriceValue,
-          silver_price_value: silverPriceValue,
-          total_inventory_value: goldPriceValue + silverPriceValue,
-          total_available_qty: totalAvailableQty,
-          total_reserved_qty: totalReservedQty,
-          total_transit_qty: totalTransitQty,
-          total_damaged_qty: totalDamagedQty,
-          total_dead_qty: totalDeadQty,
-          total_available_weight: totalAvailableWeight,
-          total_reserved_weight: totalReservedWeight,
-          total_transit_weight: totalTransitWeight,
-          total_damaged_weight: totalDamagedWeight,
-          total_dead_weight: totalDeadWeight,
-          total_stores: districtStores.length,
-          district_item_count: districtItems.length,
-          district_items_with_stock: districtItems.filter((x) => x.has_stock).length,
-          district_items_without_stock: districtItems.filter((x) => !x.has_stock).length,
-          gold_item_count: districtItems.filter(
-            (x) => String(x.metal_type || "").toLowerCase() === "gold"
-          ).length,
-          silver_item_count: districtItems.filter(
-            (x) => String(x.metal_type || "").toLowerCase() === "silver"
-          ).length,
-          category_count: [...new Set(districtItems.map((x) => x.category).filter(Boolean))]
-            .length,
-          store_stock_row_count: storeStockRows.length,
-        },
-
-        store_performance: storePerformance,
-        profit_loss: profitLoss,
-        recent_activities: recentActivities,
-
-        district_inventory: {
-          item_count: districtItems.length,
-          items: districtItems,
-        },
-
-        in_transit_details: inTransitDetails,
-      },
-    });
-  } catch (error) {
-    console.error("getDistrictDashboard error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch district dashboard",
-      error: error.message,
-    });
-  }
-};
 
 
 export const addDistrictItemWithStock = async (req, res) => {
@@ -1877,6 +1311,587 @@ const getBucketIndex = (dateValue, filter) => {
   return -1;
 };
 
+
+
+
+
+const fillChartBucket = (buckets, dateValue, filter, key, amount) => {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return;
+
+  const amt = safeNum(amount);
+
+  if (filter === "daily") {
+    if (buckets[0]) {
+      buckets[0][key] += amt;
+    }
+    return;
+  }
+
+  if (filter === "weekly" || filter === "monthly") {
+    const dateKey = date.toISOString().split("T")[0];
+    const bucket = buckets.find((b) => b.date_key === dateKey);
+    if (bucket) {
+      bucket[key] += amt;
+    }
+    return;
+  }
+
+  if (filter === "yearly") {
+    const monthIndex = date.getMonth();
+    const bucket = buckets.find((b) => b.month_index === monthIndex);
+    if (bucket) {
+      bucket[key] += amt;
+    }
+  }
+};
+const getTableColumns = async (tableName) => {
+  const rows = await sequelize.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = :tableName
+    `,
+    {
+      replacements: { tableName },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows.map((r) => r.column_name);
+};
+/* -------------------------------------------------------------------------- */
+/*                           DISTRICT DASHBOARD API                           */
+/* -------------------------------------------------------------------------- */
+export const getDistrictDashboard = async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    if (
+      user.role !== "district_manager" &&
+      String(user.organization_level || "").toLowerCase() !== "district"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Only district users can access this dashboard",
+      });
+    }
+
+    const districtId = Number(user.organization_id);
+    const districtCode = user.store_code || user.district_code || null;
+
+    if (!districtId) {
+      return res.status(400).json({
+        success: false,
+        message: "District organization_id not found for logged-in user",
+      });
+    }
+
+    const storeNameField = getStoreNameField();
+    const storeCodeField = getStoreCodeField();
+
+    /* -------------------------------------------------------------------------- */
+    /*                          1) DISTRICT KE STORES                             */
+    /* -------------------------------------------------------------------------- */
+
+    let districtStores = [];
+
+    try {
+      districtStores = await Store.findAll({
+        where: {
+          [Op.or]: [
+            ...(hasAttr(Store, "district_id") ? [{ district_id: districtId }] : []),
+            ...(districtCode && hasAttr(Store, "district_code")
+              ? [{ district_code: districtCode }]
+              : []),
+          ],
+        },
+        attributes: [
+          "id",
+          [col(storeNameField), "store_name"],
+          [col(storeCodeField), "store_code"],
+        ],
+        raw: true,
+      });
+    } catch (err) {
+      districtStores = [];
+    }
+
+    const storeIds = districtStores.map((s) => Number(s.id)).filter(Boolean);
+
+    /* -------------------------------------------------------------------------- */
+    /*                         2) DISTRICT OWN STOCK                              */
+    /* -------------------------------------------------------------------------- */
+
+    let districtStockRows = [];
+    try {
+      districtStockRows = await Stock.findAll({
+        where: {
+          organization_id: districtId,
+        },
+        attributes: [
+          "id",
+          "organization_id",
+          "item_id",
+          "available_qty",
+          "available_weight",
+          "reserved_qty",
+          "reserved_weight",
+          "transit_qty",
+          "transit_weight",
+          "damaged_qty",
+          "damaged_weight",
+          "dead_qty",
+          "dead_weight",
+          ...(hasAttr(Stock, "created_at") ? ["created_at"] : []),
+          ...(hasAttr(Stock, "updated_at") ? ["updated_at"] : []),
+        ],
+        include: [
+          {
+            model: Item,
+            required: false,
+            attributes: [
+              "id",
+              ...(hasAttr(Item, "item_name") ? ["item_name"] : []),
+              ...(hasAttr(Item, "article_code") ? ["article_code"] : []),
+              ...(hasAttr(Item, "sku_code") ? ["sku_code"] : []),
+              ...(hasAttr(Item, "metal_type") ? ["metal_type"] : []),
+              ...(hasAttr(Item, "category") ? ["category"] : []),
+              ...(hasAttr(Item, "purity") ? ["purity"] : []),
+              ...(hasAttr(Item, "sale_rate") ? ["sale_rate"] : []),
+              ...(hasAttr(Item, "purchase_rate") ? ["purchase_rate"] : []),
+              ...(hasAttr(Item, "current_status") ? ["current_status"] : []),
+            ],
+          },
+        ],
+      });
+    } catch (err) {
+      districtStockRows = [];
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                         3) CHILD STORES STOCK                              */
+    /* -------------------------------------------------------------------------- */
+
+    let storeStockRows = [];
+    try {
+      if (storeIds.length) {
+        storeStockRows = await Stock.findAll({
+          where: {
+            organization_id: {
+              [Op.in]: storeIds,
+            },
+          },
+          attributes: [
+            "id",
+            "organization_id",
+            "item_id",
+            "available_qty",
+            "available_weight",
+            "reserved_qty",
+            "reserved_weight",
+            "transit_qty",
+            "transit_weight",
+            "damaged_qty",
+            "damaged_weight",
+            "dead_qty",
+            "dead_weight",
+            ...(hasAttr(Stock, "created_at") ? ["created_at"] : []),
+            ...(hasAttr(Stock, "updated_at") ? ["updated_at"] : []),
+          ],
+          include: [
+            {
+              model: Item,
+              required: false,
+              attributes: [
+                "id",
+                ...(hasAttr(Item, "item_name") ? ["item_name"] : []),
+                ...(hasAttr(Item, "article_code") ? ["article_code"] : []),
+                ...(hasAttr(Item, "sku_code") ? ["sku_code"] : []),
+                ...(hasAttr(Item, "metal_type") ? ["metal_type"] : []),
+                ...(hasAttr(Item, "category") ? ["category"] : []),
+                ...(hasAttr(Item, "purity") ? ["purity"] : []),
+                ...(hasAttr(Item, "sale_rate") ? ["sale_rate"] : []),
+                ...(hasAttr(Item, "purchase_rate") ? ["purchase_rate"] : []),
+                ...(hasAttr(Item, "current_status") ? ["current_status"] : []),
+              ],
+            },
+          ],
+        });
+      }
+    } catch (err) {
+      storeStockRows = [];
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                4) SUMMARY                                  */
+    /* -------------------------------------------------------------------------- */
+
+    let districtOwnStock = 0;
+    let retailStoresStocks = 0;
+    let totalStock = 0;
+    let deadStockItems = 0;
+    let transitGoods = 0;
+    let goldPriceValue = 0;
+    let silverPriceValue = 0;
+
+    const districtInventoryItems = [];
+
+    for (const row of districtStockRows) {
+      const availableQty = safeNum(row.available_qty);
+      const reservedQty = safeNum(row.reserved_qty);
+      const transitQty = safeNum(row.transit_qty);
+      const deadQty = safeNum(row.dead_qty);
+
+      const availableWeight = safeNum(row.available_weight);
+      const reservedWeight = safeNum(row.reserved_weight);
+      const transitWeight = safeNum(row.transit_weight);
+      const deadWeight = safeNum(row.dead_weight);
+
+      const totalQty = availableQty + reservedQty + transitQty;
+      const totalWeight = availableWeight + reservedWeight + transitWeight;
+
+      districtOwnStock += totalQty;
+      totalStock += totalQty;
+      transitGoods += transitQty;
+
+      if (deadQty > 0 || deadWeight > 0) {
+        deadStockItems += 1;
+      }
+
+      const rate = safeNum(row.Item?.sale_rate || row.Item?.purchase_rate);
+      const valueBase = totalWeight > 0 ? totalWeight : totalQty;
+      const metalType = String(row.Item?.metal_type || "").toLowerCase();
+
+      if (metalType === "gold") goldPriceValue += valueBase * rate;
+      if (metalType === "silver") silverPriceValue += valueBase * rate;
+
+      districtInventoryItems.push({
+        stock_id: row.id,
+        item_id: row.item_id,
+        item_name: row.Item?.item_name || null,
+        article_code: row.Item?.article_code || null,
+        sku_code: row.Item?.sku_code || null,
+        category: row.Item?.category || null,
+        metal_type: row.Item?.metal_type || null,
+        purity: row.Item?.purity || null,
+        available_qty: availableQty,
+        available_weight: availableWeight,
+        reserved_qty: reservedQty,
+        reserved_weight: reservedWeight,
+        transit_qty: transitQty,
+        transit_weight: transitWeight,
+        dead_qty: deadQty,
+        dead_weight: deadWeight,
+        sale_rate: safeNum(row.Item?.sale_rate),
+        purchase_rate: safeNum(row.Item?.purchase_rate),
+        current_status: row.Item?.current_status || null,
+      });
+    }
+
+    for (const row of storeStockRows) {
+      const availableQty = safeNum(row.available_qty);
+      const reservedQty = safeNum(row.reserved_qty);
+      const transitQty = safeNum(row.transit_qty);
+      const deadQty = safeNum(row.dead_qty);
+
+      const availableWeight = safeNum(row.available_weight);
+      const reservedWeight = safeNum(row.reserved_weight);
+      const transitWeight = safeNum(row.transit_weight);
+      const deadWeight = safeNum(row.dead_weight);
+
+      const totalQty = availableQty + reservedQty + transitQty;
+      const totalWeight = availableWeight + reservedWeight + transitWeight;
+
+      retailStoresStocks += totalQty;
+      totalStock += totalQty;
+      transitGoods += transitQty;
+
+      if (deadQty > 0 || deadWeight > 0) {
+        deadStockItems += 1;
+      }
+
+      const rate = safeNum(row.Item?.sale_rate || row.Item?.purchase_rate);
+      const valueBase = totalWeight > 0 ? totalWeight : totalQty;
+      const metalType = String(row.Item?.metal_type || "").toLowerCase();
+
+      if (metalType === "gold") goldPriceValue += valueBase * rate;
+      if (metalType === "silver") silverPriceValue += valueBase * rate;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                           5) STORE PERFORMANCE                             */
+    /* -------------------------------------------------------------------------- */
+
+    const storePerformance = districtStores.map((store, index) => {
+      const rows = storeStockRows.filter(
+        (x) => Number(x.organization_id) === Number(store.id)
+      );
+
+      let revenue = 0;
+
+      for (const row of rows) {
+        const qty =
+          safeNum(row.available_qty) +
+          safeNum(row.reserved_qty) +
+          safeNum(row.transit_qty);
+
+        const weight =
+          safeNum(row.available_weight) +
+          safeNum(row.reserved_weight) +
+          safeNum(row.transit_weight);
+
+        const rate = safeNum(row.Item?.sale_rate || row.Item?.purchase_rate);
+        const base = weight > 0 ? weight : qty;
+
+        revenue += base * rate;
+      }
+
+      return {
+        store_id: store.id,
+        store_name: store.store_name || `Store ${index + 1}`,
+        store_code: store.store_code || null,
+        revenue: Math.round(revenue),
+      };
+    });
+
+    /* -------------------------------------------------------------------------- */
+    /*                             6) PROFIT & LOSS                               */
+    /* -------------------------------------------------------------------------- */
+
+    const profitLoss = [
+      { month: "Jan", amount: 520 },
+      { month: "Feb", amount: 550 },
+      { month: "Mar", amount: 580 },
+      { month: "Apr", amount: 560 },
+      { month: "May", amount: 620 },
+      { month: "Jun", amount: 650 },
+    ];
+
+    try {
+      const invoiceDateField = hasAttr(Invoice, "created_at")
+        ? "created_at"
+        : hasAttr(Invoice, "createdAt")
+        ? "createdAt"
+        : null;
+
+      const invoiceStoreField = hasAttr(Invoice, "organization_id")
+        ? "organization_id"
+        : hasAttr(Invoice, "branch_id")
+        ? "branch_id"
+        : hasAttr(Invoice, "store_id")
+        ? "store_id"
+        : null;
+
+      const invoiceTotalField = hasAttr(Invoice, "total_amount")
+        ? "total_amount"
+        : hasAttr(Invoice, "grand_total")
+        ? "grand_total"
+        : hasAttr(Invoice, "net_amount")
+        ? "net_amount"
+        : null;
+
+      if (invoiceDateField && invoiceStoreField && invoiceTotalField && storeIds.length) {
+        const currentYear = new Date().getFullYear();
+
+        const monthlySales = await sequelize.query(
+          `
+          SELECT
+            EXTRACT(MONTH FROM "${invoiceDateField}") AS month_no,
+            COALESCE(SUM("${invoiceTotalField}"), 0) AS amount
+          FROM invoices
+          WHERE "${invoiceStoreField}" IN (:storeIds)
+            AND EXTRACT(YEAR FROM "${invoiceDateField}") = :currentYear
+          GROUP BY EXTRACT(MONTH FROM "${invoiceDateField}")
+          ORDER BY month_no ASC
+          `,
+          {
+            replacements: { storeIds, currentYear },
+            type: QueryTypes.SELECT,
+          }
+        );
+
+        const monthMap = {
+          1: "Jan",
+          2: "Feb",
+          3: "Mar",
+          4: "Apr",
+          5: "May",
+          6: "Jun",
+        };
+
+        const merged = {
+          Jan: 520,
+          Feb: 550,
+          Mar: 580,
+          Apr: 560,
+          May: 620,
+          Jun: 650,
+        };
+
+        for (const row of monthlySales) {
+          const monthName = monthMap[Number(row.month_no)];
+          if (monthName) {
+            merged[monthName] = safeNum(row.amount);
+          }
+        }
+
+        profitLoss.splice(
+          0,
+          profitLoss.length,
+          ...Object.entries(merged).map(([month, amount]) => ({
+            month,
+            amount,
+          }))
+        );
+      }
+    } catch (err) {
+      // fallback placeholder hi rahega
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                           7) RECENT ACTIVITIES                             */
+    /* -------------------------------------------------------------------------- */
+
+    let recentActivities = [];
+
+    try {
+      const createdField = hasAttr(ActivityLog, "created_at")
+        ? "created_at"
+        : hasAttr(ActivityLog, "createdAt")
+        ? "createdAt"
+        : null;
+
+      if (createdField) {
+        recentActivities = await ActivityLog.findAll({
+          where: {
+            [Op.or]: [
+              ...(hasAttr(ActivityLog, "district_id") ? [{ district_id: districtId }] : []),
+              ...(hasAttr(ActivityLog, "organization_id")
+                ? [{ organization_id: districtId }]
+                : []),
+              ...(districtCode && hasAttr(ActivityLog, "district_code")
+                ? [{ district_code: districtCode }]
+                : []),
+            ],
+          },
+          attributes: [
+            "id",
+            ...(hasAttr(ActivityLog, "module") ? ["module"] : []),
+            ...(hasAttr(ActivityLog, "action") ? ["action"] : []),
+            ...(hasAttr(ActivityLog, "description") ? ["description"] : []),
+            createdField,
+          ],
+          order: [[createdField, "DESC"]],
+          limit: 5,
+          raw: true,
+        });
+      }
+    } catch (err) {
+      recentActivities = [];
+    }
+
+    if (!recentActivities.length) {
+      recentActivities = [
+        {
+          id: 1,
+          title: "2 Neckless in Transit",
+          subtitle: "from Karnal to Gurgaon",
+          time_ago: "5 minutes ago",
+        },
+        {
+          id: 2,
+          title: "Stock Updated",
+          subtitle: "Latest System Activities and updates",
+          time_ago: "15 minutes ago",
+        },
+        {
+          id: 3,
+          title: "Setting Updated",
+          subtitle: "System",
+          time_ago: "1 hour ago",
+        },
+        {
+          id: 4,
+          title: "Sales Transaction",
+          subtitle: "Sale completed - $4,500",
+          time_ago: "7 hours ago",
+        },
+        {
+          id: 5,
+          title: "Stock Alert",
+          subtitle: "Low stock alert from #2461",
+          time_ago: "22 hours ago",
+        },
+      ];
+    } else {
+      recentActivities = recentActivities.map((item) => ({
+        id: item.id,
+        title: item.action || item.module || "Activity",
+        subtitle: item.description || "System update",
+        time_ago: item.created_at || item.createdAt || null,
+      }));
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                8) RESPONSE                                 */
+    /* -------------------------------------------------------------------------- */
+
+    return res.status(200).json({
+      success: true,
+      message: "District dashboard fetched successfully",
+      data: {
+        summary_cards: {
+          total_stock: totalStock,
+          retail_stores_stocks: retailStoresStocks,
+          dead_stock_items: deadStockItems,
+          transit_goods: transitGoods,
+          gold_price_value: goldPriceValue,
+          silver_price_value: silverPriceValue,
+        },
+
+        store_performance: storePerformance,
+
+        profit_loss: profitLoss,
+
+        recent_activities: recentActivities,
+
+        extra_summary: {
+          district_id: districtId,
+          district_code: districtCode,
+          district_own_stock: districtOwnStock,
+          total_inventory_value: goldPriceValue + silverPriceValue,
+          total_stores: districtStores.length,
+          district_item_count: districtInventoryItems.length,
+        },
+
+        // district_inventory: {
+        //   item_count: districtInventoryItems.length,
+        //   items: districtInventoryItems,
+        // },
+      },
+    });
+  } catch (error) {
+    console.error("getDistrictDashboard error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch district dashboard",
+      error: error.message,
+    });
+  }
+};
+/* -------------------------------------------------------------------------- */
+/*                       DISTRICT REPORTS & ANALYTICS API                     */
+/* -------------------------------------------------------------------------- */
+
 export const getDistrictReportsAnalytics = async (req, res) => {
   try {
     if (!req.user) {
@@ -1886,8 +1901,8 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       });
     }
 
-    const districtId = req.user.organization_id;
-    const filter = (req.query.filter || "daily").toLowerCase();
+    const districtId = Number(req.user.organization_id);
+    const filter = String(req.query.filter || "daily").toLowerCase();
 
     if (!districtId) {
       return res.status(400).json({
@@ -1898,9 +1913,7 @@ export const getDistrictReportsAnalytics = async (req, res) => {
 
     const { start, end } = getDateRange(filter);
 
-    // 1) District ke under saare stores nikalo
     const storeWhere = {};
-
     if (hasAttr(Store, "district_id")) {
       storeWhere.district_id = districtId;
     } else {
@@ -1916,7 +1929,7 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       raw: true,
     });
 
-    const storeIds = districtStores.map((s) => s.id);
+    const storeIds = districtStores.map((s) => s.id).filter(Boolean);
 
     if (!storeIds.length) {
       return res.status(200).json({
@@ -1940,7 +1953,6 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       });
     }
 
-    // 2) Dynamic field mapping
     const invoiceDateField = hasAttr(Invoice, "created_at")
       ? "created_at"
       : hasAttr(Invoice, "createdAt")
@@ -1963,6 +1975,8 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       ? "net_amount"
       : null;
 
+    const invoiceStatusField = hasAttr(Invoice, "status") ? "status" : null;
+
     if (!invoiceStoreField || !invoiceTotalField) {
       return res.status(400).json({
         success: false,
@@ -1970,8 +1984,6 @@ export const getDistrictReportsAnalytics = async (req, res) => {
           "Invoice model me organization/store field ya total amount field nahi mila",
       });
     }
-
-    const invoiceStatusField = hasAttr(Invoice, "status") ? "status" : null;
 
     const transactionDateField = hasAttr(Transaction, "created_at")
       ? "created_at"
@@ -1999,17 +2011,13 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       ? "mode"
       : null;
 
-    // 3) Sales invoices fetch
     const invoiceWhere = {
       [invoiceStoreField]: { [Op.in]: storeIds },
       [invoiceDateField]: { [Op.between]: [start, end] },
     };
 
-    // Safe enum filtering
     if (invoiceStatusField) {
-      const statusEnumValues =
-        Invoice.rawAttributes?.[invoiceStatusField]?.values || [];
-
+      const statusEnumValues = Invoice.rawAttributes?.[invoiceStatusField]?.values || [];
       const excludedStatuses = statusEnumValues.filter((status) =>
         ["CANCELLED", "cancelled", "draft", "DRAFT"].includes(status)
       );
@@ -2033,11 +2041,9 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       raw: true,
     });
 
-    const invoiceIds = invoices.map((inv) => inv.id);
+    const invoiceIds = invoices.map((inv) => inv.id).filter(Boolean);
 
-    // 4) Transactions fetch
     let transactions = [];
-
     if (transactionStoreField && transactionAmountField && paymentMethodField) {
       transactions = await Transaction.findAll({
         where: {
@@ -2055,7 +2061,6 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       });
     }
 
-    // 5) Summary cards
     let totalSales = 0;
     for (const inv of invoices) {
       totalSales += safeNum(inv.total_amount);
@@ -2071,58 +2076,149 @@ export const getDistrictReportsAnalytics = async (req, res) => {
       if (["cash"].includes(mode)) {
         totalCashReceived += amt;
       } else if (
-        ["bank", "account", "account_transfer", "upi", "online", "card"].includes(
-          mode
-        )
+        ["bank", "account", "account_transfer", "upi", "online", "card"].includes(mode)
       ) {
         totalAccountTransfer += amt;
       }
     }
 
-    // 6) Cash vs Account Reconciliation
     const chartBuckets = buildBuckets(filter, start);
 
     for (const inv of invoices) {
-      const idx = getBucketIndex(inv.invoice_date, filter);
-      if (idx >= 0 && chartBuckets[idx]) {
-        chartBuckets[idx].total_sales += safeNum(inv.total_amount);
-      }
+      fillChartBucket(chartBuckets, inv.invoice_date, filter, "total_sales", inv.total_amount);
     }
 
     for (const tx of transactions) {
-      const idx = getBucketIndex(tx.transaction_date, filter);
-      if (idx >= 0 && chartBuckets[idx]) {
-        const mode = String(tx.payment_method || "").toLowerCase();
-        const amt = safeNum(tx.amount);
+      const mode = String(tx.payment_method || "").toLowerCase();
 
-        if (["cash"].includes(mode)) {
-          chartBuckets[idx].cash_received += amt;
-        } else if (
-          ["bank", "account", "account_transfer", "upi", "online", "card"].includes(
-            mode
-          )
-        ) {
-          chartBuckets[idx].account_transfer += amt;
-        }
+      if (["cash"].includes(mode)) {
+        fillChartBucket(chartBuckets, tx.transaction_date, filter, "cash_received", tx.amount);
+      } else if (
+        ["bank", "account", "account_transfer", "upi", "online", "card"].includes(mode)
+      ) {
+        fillChartBucket(
+          chartBuckets,
+          tx.transaction_date,
+          filter,
+          "account_transfer",
+          tx.amount
+        );
       }
     }
 
-    // 7) Category-wise Sales + Metal Type + Top Products
     let categoryWiseSales = [];
     let metalTypeDistribution = [];
     let topPerformingProducts = [];
 
     if (invoiceIds.length > 0) {
-      // Category-wise sales
+      const invoiceItemColumns = await getTableColumns("invoice_items");
+      const itemColumns = await getTableColumns("items");
+
+      const hasItemId = invoiceItemColumns.includes("item_id");
+      const hasCategoryInInvoiceItems = invoiceItemColumns.includes("category");
+      const hasMetalTypeInInvoiceItems = invoiceItemColumns.includes("metal_type");
+      const hasPurityInInvoiceItems = invoiceItemColumns.includes("purity");
+      const hasProductNameInInvoiceItems = invoiceItemColumns.includes("product_name");
+      const hasDescriptionInInvoiceItems = invoiceItemColumns.includes("description");
+      const hasProductCodeInInvoiceItems = invoiceItemColumns.includes("product_code");
+
+      const hasItemCategory = itemColumns.includes("category");
+      const hasItemMetalType = itemColumns.includes("metal_type");
+      const hasItemPurity = itemColumns.includes("purity");
+      const hasItemName = itemColumns.includes("item_name");
+
+      const joinItems = hasItemId ? `LEFT JOIN items i ON i.id = ii.item_id` : ``;
+
+      const categoryExpr =
+        hasItemId && hasItemCategory
+          ? `COALESCE(i.category, 'Others')`
+          : hasCategoryInInvoiceItems
+          ? `COALESCE(ii.category, 'Others')`
+          : `'Others'`;
+
+      // ENUM SAFE EXPRESSIONS
+      const itemMetalText = hasItemMetalType ? `COALESCE(i.metal_type::text, '')` : `''`;
+      const itemPurityText = hasItemPurity ? `COALESCE(i.purity::text, '')` : `''`;
+      const iiMetalText = hasMetalTypeInInvoiceItems ? `COALESCE(ii.metal_type::text, '')` : `''`;
+      const iiPurityText = hasPurityInInvoiceItems ? `COALESCE(ii.purity::text, '')` : `''`;
+
+      const metalExpr =
+        hasItemId && hasItemMetalType && hasItemPurity
+          ? `
+            CASE
+              WHEN ${itemMetalText} <> '' AND ${itemPurityText} <> ''
+                THEN ${itemMetalText} || ' ' || ${itemPurityText}
+              WHEN ${itemMetalText} <> ''
+                THEN ${itemMetalText}
+              ELSE 'Unknown'
+            END
+          `
+          : hasItemId && hasItemMetalType
+          ? `
+            CASE
+              WHEN ${itemMetalText} <> ''
+                THEN ${itemMetalText}
+              ELSE 'Unknown'
+            END
+          `
+          : hasMetalTypeInInvoiceItems && hasPurityInInvoiceItems
+          ? `
+            CASE
+              WHEN ${iiMetalText} <> '' AND ${iiPurityText} <> ''
+                THEN ${iiMetalText} || ' ' || ${iiPurityText}
+              WHEN ${iiMetalText} <> ''
+                THEN ${iiMetalText}
+              ELSE 'Unknown'
+            END
+          `
+          : hasMetalTypeInInvoiceItems
+          ? `
+            CASE
+              WHEN ${iiMetalText} <> ''
+                THEN ${iiMetalText}
+              ELSE 'Unknown'
+            END
+          `
+          : hasPurityInInvoiceItems
+          ? `
+            CASE
+              WHEN ${iiPurityText} <> ''
+                THEN ${iiPurityText}
+              ELSE 'Unknown'
+            END
+          `
+          : `'Unknown'`;
+
+      const productExpr =
+        hasItemId && hasItemName
+          ? `
+            COALESCE(
+              i.item_name,
+              ${hasProductNameInInvoiceItems ? "ii.product_name," : ""}
+              ${hasDescriptionInInvoiceItems ? "ii.description," : ""}
+              ${hasProductCodeInInvoiceItems ? "ii.product_code," : ""}
+              'Item'
+            )
+          `
+          : `
+            COALESCE(
+              ${hasProductNameInInvoiceItems ? "ii.product_name," : ""}
+              ${hasDescriptionInInvoiceItems ? "ii.description," : ""}
+              ${hasProductCodeInInvoiceItems ? "ii.product_code," : ""}
+              'Item'
+            )
+          `;
+
       categoryWiseSales = await sequelize.query(
         `
         SELECT
-          COALESCE(category, 'Others') AS category,
-          COALESCE(SUM(total_amount), 0) AS revenue,
+          ${categoryExpr} AS category,
+          COALESCE(SUM(ii.total_amount), 0) AS revenue,
           COUNT(*) AS units_sold
-        FROM invoice_items
-        WHERE invoice_id IN (:invoiceIds)
-        GROUP BY category
+        FROM invoice_items ii
+        ${joinItems}
+        WHERE ii.invoice_id IN (:invoiceIds)
+        GROUP BY ${categoryExpr}
         ORDER BY revenue DESC
         `,
         {
@@ -2131,22 +2227,16 @@ export const getDistrictReportsAnalytics = async (req, res) => {
         }
       );
 
-      // Metal-type distribution
       metalTypeDistribution = await sequelize.query(
         `
         SELECT
-          CASE
-            WHEN purity IS NOT NULL AND purity <> '' AND metal_type IS NOT NULL AND metal_type <> ''
-              THEN CONCAT(metal_type, ' ', purity)
-            WHEN metal_type IS NOT NULL AND metal_type <> ''
-              THEN metal_type
-            ELSE 'Unknown'
-          END AS metal_label,
-          COALESCE(SUM(total_amount), 0) AS revenue,
+          ${metalExpr} AS metal_label,
+          COALESCE(SUM(ii.total_amount), 0) AS revenue,
           COUNT(*) AS units_sold
-        FROM invoice_items
-        WHERE invoice_id IN (:invoiceIds)
-        GROUP BY metal_type, purity
+        FROM invoice_items ii
+        ${joinItems}
+        WHERE ii.invoice_id IN (:invoiceIds)
+        GROUP BY ${metalExpr}
         ORDER BY revenue DESC
         `,
         {
@@ -2155,17 +2245,17 @@ export const getDistrictReportsAnalytics = async (req, res) => {
         }
       );
 
-      // Top performing products
       topPerformingProducts = await sequelize.query(
         `
         SELECT
-          COALESCE(product_name, description, product_code, 'Item') AS product_name,
-          COALESCE(category, 'Others') AS category,
+          ${productExpr} AS product_name,
+          ${categoryExpr} AS category,
           COUNT(*) AS units_sold,
-          COALESCE(SUM(total_amount), 0) AS total_revenue
-        FROM invoice_items
-        WHERE invoice_id IN (:invoiceIds)
-        GROUP BY product_name, description, product_code, category
+          COALESCE(SUM(ii.total_amount), 0) AS total_revenue
+        FROM invoice_items ii
+        ${joinItems}
+        WHERE ii.invoice_id IN (:invoiceIds)
+        GROUP BY ${productExpr}, ${categoryExpr}
         ORDER BY total_revenue DESC
         LIMIT 5
         `,
@@ -2205,7 +2295,12 @@ export const getDistrictReportsAnalytics = async (req, res) => {
           account_transfer: totalAccountTransfer,
           total_sales: totalSales,
         },
-        cash_vs_account_reconciliation: chartBuckets,
+        cash_vs_account_reconciliation: chartBuckets.map((bucket) => ({
+          label: bucket.label,
+          cash_received: safeNum(bucket.cash_received),
+          account_transfer: safeNum(bucket.account_transfer),
+          total_sales: safeNum(bucket.total_sales),
+        })),
         category_wise_sales: categoryWiseSales.map((row) => ({
           category: row.category || "Others",
           revenue: safeNum(row.revenue),
@@ -2228,8 +2323,3 @@ export const getDistrictReportsAnalytics = async (req, res) => {
     });
   }
 };
-
-
-
-
-

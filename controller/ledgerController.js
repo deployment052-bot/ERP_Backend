@@ -894,3 +894,268 @@ export const getDistrictLedgerClientDetail = async (req, res) => {
     });
   }
 };
+
+export const downloadDistrictLedgerExcel = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated. req.user is missing.",
+      });
+    }
+
+    const { search = "" } = req.query;
+
+    if (!DISTRICT_LEVELS.includes(req.user.organization_level)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only district users can download this ledger excel",
+      });
+    }
+
+    const districtOrg = await resolveDistrictOrganization(req.user);
+
+    const customerWhere = {
+      organization_id: districtOrg.id,
+    };
+
+    if (search?.trim()) {
+      customerWhere[Op.or] = [
+        { name: { [Op.iLike]: `%${search.trim()}%` } },
+        { phone: { [Op.iLike]: `%${search.trim()}%` } },
+      ];
+    }
+
+    const ledgerWhere = {
+      organization_id: districtOrg.id,
+    };
+
+    const summaryRaw = await LedgerEntry.findOne({
+      where: ledgerWhere,
+      attributes: [
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'DEBIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "total_sales",
+        ],
+        [
+          fn(
+            "COALESCE",
+            fn(
+              "SUM",
+              literal(`CASE WHEN "LedgerEntry"."type" = 'CREDIT' THEN 1 ELSE 0 END`)
+            ),
+            0
+          ),
+          "goods_receipt",
+        ],
+      ],
+      raw: true,
+    });
+
+    const clientRows = await Customer.findAll({
+      where: customerWhere,
+      attributes: [
+        "id",
+        "name",
+        "phone",
+        "address",
+        "store_code",
+        "organization_id",
+        [
+          fn("COUNT", literal(`DISTINCT "invoices"."id"`)),
+          "total_deals",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.total_amount`)), 0),
+          "total_amount",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.received_amount`)), 0),
+          "received_amount",
+        ],
+        [
+          fn("COALESCE", fn("SUM", col(`invoices.pending_amount`)), 0),
+          "pending_amount",
+        ],
+      ],
+      include: [
+        {
+          model: Invoice,
+          as: "invoices",
+          attributes: [],
+          required: false,
+          where: {
+            organization_id: districtOrg.id,
+          },
+        },
+      ],
+      group: ["Customer.id"],
+      order: [[literal(`"pending_amount"`), "DESC"]],
+      subQuery: false,
+    });
+
+    const data = clientRows.map((row) => ({
+      customer_id: row.id,
+      client_name: row.name || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      customer_store_code: row.store_code || "",
+      total_deals: Number(row.get("total_deals") || 0),
+      total_amount: Number(row.get("total_amount") || 0),
+      received_amount: Number(row.get("received_amount") || 0),
+      pending_amount: Number(row.get("pending_amount") || 0),
+    }));
+
+    const summary = {
+      total_sales: Number(summaryRaw?.total_sales || 0),
+      loss: 0,
+      goods_receipt: Number(summaryRaw?.goods_receipt || 0),
+      total_clients: data.length,
+      total_amount: data.reduce((sum, item) => sum + item.total_amount, 0),
+      total_received: data.reduce((sum, item) => sum + item.received_amount, 0),
+      total_pending: data.reduce((sum, item) => sum + item.pending_amount, 0),
+    };
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("District Ledger");
+
+    // Title
+    worksheet.mergeCells("A1:I1");
+    worksheet.getCell("A1").value = "District Ledger Dashboard Report";
+    worksheet.getCell("A1").font = { bold: true, size: 16 };
+    worksheet.getCell("A1").alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+
+    // District Info
+    worksheet.getCell("A3").value = "District Office Name";
+    worksheet.getCell("B3").value = districtOrg[getStoreNameField()] || "";
+
+    worksheet.getCell("A4").value = "District Office Code";
+    worksheet.getCell("B4").value =
+      districtOrg[getStoreCodeField()] || req.user?.store_code || "";
+
+    worksheet.getCell("A5").value = "Organization ID";
+    worksheet.getCell("B5").value = districtOrg.id;
+
+    worksheet.getCell("A6").value = "District ID";
+    worksheet.getCell("B6").value = districtOrg.district_id || "";
+
+    worksheet.getCell("A7").value = "Organization Level";
+    worksheet.getCell("B7").value = districtOrg.organization_level || "District";
+
+    worksheet.getCell("A8").value = "Generated At";
+    worksheet.getCell("B8").value = new Date().toLocaleString();
+
+    ["A3", "A4", "A5", "A6", "A7", "A8"].forEach((cell) => {
+      worksheet.getCell(cell).font = { bold: true };
+    });
+
+    // Summary block
+    worksheet.getCell("D3").value = "Total Sales";
+    worksheet.getCell("E3").value = summary.total_sales;
+
+    worksheet.getCell("D4").value = "Loss";
+    worksheet.getCell("E4").value = summary.loss;
+
+    worksheet.getCell("D5").value = "Goods Receipt";
+    worksheet.getCell("E5").value = summary.goods_receipt;
+
+    worksheet.getCell("D6").value = "Total Clients";
+    worksheet.getCell("E6").value = summary.total_clients;
+
+    worksheet.getCell("D7").value = "Total Amount";
+    worksheet.getCell("E7").value = summary.total_amount;
+
+    worksheet.getCell("D8").value = "Received Amount";
+    worksheet.getCell("E8").value = summary.total_received;
+
+    worksheet.getCell("D9").value = "Pending Amount";
+    worksheet.getCell("E9").value = summary.total_pending;
+
+    ["D3", "D4", "D5", "D6", "D7", "D8", "D9"].forEach((cell) => {
+      worksheet.getCell(cell).font = { bold: true };
+    });
+
+    // Table header
+    const headerRowIndex = 11;
+
+    worksheet.getRow(headerRowIndex).values = [
+      "Customer ID",
+      "Client Name",
+      "Phone",
+      "Address",
+      "District Store Code",
+      "Total Deals",
+      "Total Amount",
+      "Received Amount",
+      "Pending Amount",
+    ];
+
+    worksheet.getRow(headerRowIndex).font = { bold: true };
+
+    data.forEach((item) => {
+      worksheet.addRow([
+        item.customer_id,
+        item.client_name,
+        item.phone,
+        item.address,
+        item.customer_store_code,
+        item.total_deals,
+        item.total_amount,
+        item.received_amount,
+        item.pending_amount,
+      ]);
+    });
+
+    worksheet.columns = [
+      { width: 15 },
+      { width: 25 },
+      { width: 18 },
+      { width: 30 },
+      { width: 20 },
+      { width: 15 },
+      { width: 18 },
+      { width: 18 },
+      { width: 18 },
+    ];
+
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber >= headerRowIndex) {
+        row.getCell(6).alignment = { horizontal: "center" };
+        row.getCell(7).alignment = { horizontal: "right" };
+        row.getCell(8).alignment = { horizontal: "right" };
+        row.getCell(9).alignment = { horizontal: "right" };
+      }
+    });
+
+    const fileName = `district_ledger_${districtOrg[getStoreCodeField()] || districtOrg.id}_${Date.now()}.xlsx`;
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`
+    );
+
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    console.error("Download District Ledger Excel Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to download district ledger excel",
+      error: error.message,
+    });
+  }
+};
