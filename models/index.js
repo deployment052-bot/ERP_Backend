@@ -1,3 +1,8 @@
+// models/index.js
+
+import sequelize from "../config/db.js";
+
+// 🔥 IMPORTS (MATCH FILE NAMES EXACTLY)
 import State from "./State.js";
 import District from "./District.js";
 import Store from "./Store.js";
@@ -10,31 +15,35 @@ import InvoiceItem from "./InvoiceItem.js";
 import Transaction from "./Transaction.js";
 import TransactionEntry from "./TransactionEntry.js";
 import LedgerEntry from "./LedgerEntry.js";
-import sequelize from "../config/db.js";
 import Bill from "./Bill.js";
 import BillItem from "./BillItem.js";
+import Driver from "./Driver.js";
+import StockRequest from "./StockRequest.js";
+import StockRequestItem from "./stockRequestItem.js";  
+import StockTransfer from "./stockTransfer.js";
+import StockTransferItem from "./stockTransferItem.js";
+import TrackingLog from "./TrackingLog.js";
+import StockMovement from "./stockMovement.js";
 
-// ================== LOCATION HIERARCHY ==================
 
-// STATE → DISTRICT
+
+// ================== LOCATION ==================
+
 State.hasMany(District, { foreignKey: "state_name" });
 District.belongsTo(State, { foreignKey: "state_name" });
 
-// DISTRICT → STORE
 District.hasMany(Store, { foreignKey: "district_id" });
 Store.belongsTo(District, { foreignKey: "district_id" });
 
-// STORE → ITEM
 Store.hasMany(Item, { foreignKey: "store_id" });
 Item.belongsTo(Store, { foreignKey: "store_id" });
 
-// ITEM → STOCK
 Item.hasOne(Stock, { foreignKey: "item_id" });
 Stock.belongsTo(Item, { foreignKey: "item_id" });
 
-// ================== STORE RELATIONS ==================
 
-// STORE → CUSTOMER
+// ================== CUSTOMER ==================
+
 Store.hasMany(Customer, {
   foreignKey: "store_code",
   sourceKey: "store_code",
@@ -44,29 +53,6 @@ Customer.belongsTo(Store, {
   targetKey: "store_code",
 });
 
-// STORE → INVOICE
-Store.hasMany(Invoice, {
-  foreignKey: "store_code",
-  sourceKey: "store_code",
-});
-Invoice.belongsTo(Store, {
-  foreignKey: "store_code",
-  targetKey: "store_code",
-});
-
-// STORE → PAYMENT
-Store.hasMany(Payment, {
-  foreignKey: "store_code",
-  sourceKey: "store_code",
-});
-Payment.belongsTo(Store, {
-  foreignKey: "store_code",
-  targetKey: "store_code",
-});
-
-// ================== CUSTOMER FLOW ==================
-
-// CUSTOMER → INVOICE
 Customer.hasMany(Invoice, {
   foreignKey: "customer_id",
   as: "invoices",
@@ -74,12 +60,12 @@ Customer.hasMany(Invoice, {
 
 Invoice.belongsTo(Customer, {
   foreignKey: "customer_id",
-  as: "customer", // 🔥 IMPORTANT FIX
+  as: "customer",
 });
 
-// ================== INVOICE FLOW ==================
 
-// INVOICE → ITEMS
+// ================== INVOICE ==================
+
 Invoice.hasMany(InvoiceItem, {
   foreignKey: "invoice_id",
   as: "items",
@@ -89,7 +75,6 @@ InvoiceItem.belongsTo(Invoice, {
   foreignKey: "invoice_id",
 });
 
-// INVOICE → PAYMENT
 Invoice.hasMany(Payment, {
   foreignKey: "invoice_id",
   as: "payments",
@@ -99,7 +84,8 @@ Payment.belongsTo(Invoice, {
   foreignKey: "invoice_id",
 });
 
-// ================== BILLING ==================
+
+// ================== BILL ==================
 
 Bill.hasMany(BillItem, {
   foreignKey: "bill_id",
@@ -110,21 +96,9 @@ BillItem.belongsTo(Bill, {
   foreignKey: "bill_id",
 });
 
-// ================== ACCOUNTING ==================
-
-// TRANSACTION → ENTRIES
-Transaction.hasMany(TransactionEntry, {
-  foreignKey: "transaction_id",
-  as: "entries",
-});
-
-TransactionEntry.belongsTo(Transaction, {
-  foreignKey: "transaction_id",
-});
 
 // ================== LEDGER ==================
 
-// CUSTOMER → LEDGER
 Customer.hasMany(LedgerEntry, {
   foreignKey: "customer_id",
   as: "ledger_entries",
@@ -134,29 +108,73 @@ LedgerEntry.belongsTo(Customer, {
   foreignKey: "customer_id",
 });
 
-// LEDGER → INVOICE (Polymorphic)
-LedgerEntry.belongsTo(Invoice, {
-  foreignKey: "reference_id",
-  constraints: false,
-  as: "invoice",
+
+// ================== STOCK REQUEST FLOW ==================
+
+StockRequest.hasMany(StockRequestItem, {
+  foreignKey: "request_id",
+  as: "request_items",
 });
 
-// LEDGER → PAYMENT (Polymorphic)
-LedgerEntry.belongsTo(Payment, {
-  foreignKey: "reference_id",
-  constraints: false,
-  as: "payment",
+StockRequestItem.belongsTo(StockRequest, {
+  foreignKey: "request_id",
+});
+
+//  ONLY ONE ASSOCIATION (correct)
+StockRequestItem.belongsTo(Item, {
+  foreignKey: "item_id",
+  as: "item",
+});
+
+// ================== TRANSFER ==================
+
+//  Request → Transfer
+StockRequest.hasOne(StockTransfer, {
+  foreignKey: "request_id",
+  as: "transfer",
+});
+
+//  Transfer → Request (IMPORTANT FIX)
+StockTransfer.belongsTo(StockRequest, {
+  foreignKey: "request_id",
+  as: "request", 
+});
+
+
+// Transfer → Items
+StockTransfer.hasMany(StockTransferItem, {
+  foreignKey: "transfer_id",
+  as: "items",
+});
+
+StockTransferItem.belongsTo(StockTransfer, {
+  foreignKey: "transfer_id",
+});
+
+
+//  TransferItem → Item
+StockTransferItem.belongsTo(Item, {
+  foreignKey: "item_id",
+  as: "item",
+});
+StockTransfer.belongsTo(Driver, {
+  foreignKey: "driver_id",
+  as: "driver",
+});
+StockTransfer.hasMany(TrackingLog, {
+  foreignKey: "transfer_id",
+  as: "tracking",
 });
 
 // ================== EXPORT ==================
 
 export {
+  sequelize,
   State,
   District,
   Store,
   Item,
   Stock,
-  sequelize,
   Customer,
   Invoice,
   Payment,
@@ -166,4 +184,11 @@ export {
   LedgerEntry,
   Bill,
   BillItem,
-};
+  StockRequest,
+  StockRequestItem,
+  StockTransfer,
+  StockTransferItem,
+  Driver,
+  TrackingLog,
+  StockMovement,
+};  

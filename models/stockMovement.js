@@ -181,4 +181,4 @@ const StockMovement = sequelize.define(
   }
 );
 
-export default StockMovement;StockMovement
+export default StockMovement;

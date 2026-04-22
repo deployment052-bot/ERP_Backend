@@ -1,5 +1,54 @@
 import Store from "../models/Store.js"; 
 import sequelize from "../config/db.js";
+
+export const getStoreSummaryCards = async (req, res) => {
+  try {
+    const { district_id } = req.query;
+
+    let filter = "";
+    if (district_id) {
+      filter = `WHERE st.district_id = ${Number(district_id)}`;
+    }
+
+    const data = await sequelize.query(`
+      SELECT 
+        COUNT(DISTINCT st.id) AS total_stores,
+
+        COUNT(DISTINCT CASE 
+          WHEN st.is_active = true THEN st.id 
+        END) AS active_stores,
+
+        COUNT(DISTINCT u.id) AS total_employees,
+
+        COALESCE(SUM(inv.total_amount), 0) AS total_revenue
+
+      FROM stores st
+
+      LEFT JOIN users u 
+        ON u.store_code = st.store_code
+
+      LEFT JOIN invoices inv 
+        ON inv.store_code = st.store_code
+
+      ${filter}
+    `);
+
+    const result = data[0][0];
+
+    res.json({
+      success: true,
+      data: {
+        totalStores: Number(result.total_stores),
+        activeStores: Number(result.active_stores),
+        totalEmployees: Number(result.total_employees),
+        totalRevenue: Number(result.total_revenue),
+      },
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 export const getDistricts = async (req, res) => {
   try {
     const data = await Store.findAll({

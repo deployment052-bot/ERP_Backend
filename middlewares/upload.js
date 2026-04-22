@@ -1,5 +1,6 @@
 import multer from "multer";
 
+// ✅ storage config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -9,6 +10,17 @@ const storage = multer.diskStorage({
   },
 });
 
-export const upload = multer({ storage });
+// ✅ file filter (optional but recommended)
+const fileFilter = (req, file, cb) => {
+  if (file.mimetype === "application/pdf") {
+    cb(null, true);
+  } else {
+    cb(new Error("Only PDF files allowed"), false);
+  }
+};
 
-// auth 
+// ✅ upload middleware
+export const upload = multer({
+  storage,
+  fileFilter,
+});

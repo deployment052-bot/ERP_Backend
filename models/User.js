@@ -114,9 +114,11 @@ const User = sequelize.define(
     },
   },
   {
-    tableName: "users",
-    timestamps: true, 
-  }
-);
+  tableName: "users",
+  schema: "public", 
+  timestamps: true,
+  createdAt: "created_at",
+  updatedAt: "updated_at"
+});
 
 export default User;

@@ -18,6 +18,12 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import headReportsRoutes from "./routes/headReportsRoutes.js";
 import storeManagementFlowRoutes from "./routes/storeManagementFlow.js";
 import invoiceRoutes from "./routes/invoiceRoutes.js";
+import headLedgerRoutes from "./routes/headLedgerRoutes.js";
+import staffRoutes from "./routes/staffRoutes.js";
+import headOfficeStockRoutes from "./routes/headOfficeStockRoutes.js";  
+import transitRoutes from "./routes/transitRoutes.js";
+import headInventoryRoutes from "./routes/headInventoryRoutes.js";
+import ocrRoutes from "./routes/ocrRoutes.js";
 dotenv.config();
 
 const app = express();
@@ -41,12 +47,18 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/head-reports", headReportsRoutes);
 app.use("/api/store-management", storeManagementFlowRoutes);
 app.use("/api/invoice", invoiceRoutes);
+app.use("/api/head-ledger", headLedgerRoutes);
+app.use("/api/staff", staffRoutes);
+app.use("/api/head-office-stock", headOfficeStockRoutes);
+app.use("/api/transit", transitRoutes);
+app.use("/api/head-inventory", headInventoryRoutes);
+app.use("/api/ocr", ocrRoutes);
 const startServer = async () => {
   try {
     await sequelize.authenticate();
     console.log("DB Connected");
 
-    await sequelize.sync();
+    // await sequelize.sync();
     app.listen(process.env.PORT || 5000, () => {
       console.log(`Server running on port ${process.env.PORT || 5000}`);
       console.log("Swagger URL: http://localhost:5000/api-docs");

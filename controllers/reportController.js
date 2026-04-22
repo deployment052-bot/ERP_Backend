@@ -68,7 +68,7 @@ export const getCategorySales = async (req, res) => {
         SUM(ii.total_amount) as total_revenue
       FROM invoice_items ii
       JOIN items i 
-        ON i.id = ii.item_id   -- ✅ FIXED (IMPORTANT)
+        ON i.id = ii.item_id  
       JOIN invoices inv 
         ON ii.invoice_id = inv.id
       WHERE inv.status IN ('PAID', 'PARTIAL')
@@ -139,10 +139,9 @@ export const getTopProducts = async (req, res) => {
       LIMIT 5
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // 🔥 Max revenue (performance calculate karne ke liye)
+   
     const maxRevenue = data.length > 0 ? Number(data[0].total_revenue) : 0;
 
-    // 🔥 Final UI format
     const finalData = data.map((item, index) => ({
       rank: index + 1,
       product_name: item.item_name,
@@ -165,7 +164,7 @@ export const getTopProducts = async (req, res) => {
 };
 export const getAllReports = async (req, res) => {
   try {
-    // 🔹 1. Dashboard Summary
+   
     const totalCustomers = await Customer.count();
     const totalRevenue = await Invoice.sum("total_amount") || 0;
     const totalSales = await Invoice.count();
@@ -176,7 +175,7 @@ export const getAllReports = async (req, res) => {
       totalSales,
     };
 
-    // 🔹 2. Cash vs Account
+   
     const cashVsAccount = await sequelize.query(`
       SELECT 
         DATE(p.payment_date) as date,
@@ -189,7 +188,7 @@ export const getAllReports = async (req, res) => {
       ORDER BY DATE(p.payment_date) ASC
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // 🔹 3. Category Sales
+   
     const categoryRaw = await sequelize.query(`
       SELECT 
         i.category,
@@ -213,7 +212,7 @@ export const getAllReports = async (req, res) => {
         : 0,
     }));
 
-    // 🔹 4. Type Distribution
+  
     const typeDistribution = await sequelize.query(`
       SELECT 
         CONCAT(i.metal_type, ' ', i.purity) as label,
@@ -226,7 +225,7 @@ export const getAllReports = async (req, res) => {
       ORDER BY value DESC
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // 🔹 5. Top Products
+   
     const topProductsRaw = await sequelize.query(`
       SELECT 
         i.item_name,
@@ -255,7 +254,7 @@ export const getAllReports = async (req, res) => {
         : 0,
     }));
 
-    // 🔥 FINAL RESPONSE (sab ek sath)
+   
     res.json({
       success: true,
       data: {
@@ -275,7 +274,7 @@ export const getAllReportsFiltered = async (req, res) => {
   try {
     const { level, store_id, district_id } = req.query;
 
-    // 🔥 Dynamic Filter
+
     let filter = "";
 
     if (level === "store" && store_id) {
@@ -288,7 +287,7 @@ export const getAllReportsFiltered = async (req, res) => {
       )`;
     }
 
-    // ================= DASHBOARD SUMMARY =================
+   
     const totalCustomers = await Customer.count();
 
     const totalRevenue = await sequelize.query(`
@@ -308,10 +307,10 @@ export const getAllReportsFiltered = async (req, res) => {
     const dashboardSummary = {
       totalCustomers,
       totalRevenue: Number(totalRevenue[0].total),
-      totalSales: Number(totalSales[0].count),
+      totalSales: Number(totalSales[0].count)
     };
 
-    // ================= CASH vs ACCOUNT =================
+
     const cashVsAccount = await sequelize.query(`
       SELECT 
         DATE(p.payment_date) as date,
@@ -327,7 +326,7 @@ export const getAllReportsFiltered = async (req, res) => {
       ORDER BY DATE(p.payment_date) ASC
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // ================= CATEGORY SALES =================
+    
     const categoryRaw = await sequelize.query(`
       SELECT 
         i.category,
@@ -352,7 +351,7 @@ export const getAllReportsFiltered = async (req, res) => {
         : 0,
     }));
 
-    // ================= TYPE DISTRIBUTION =================
+    
     const typeDistribution = await sequelize.query(`
       SELECT 
         CONCAT(i.metal_type, ' ', i.purity) as label,
@@ -366,7 +365,6 @@ export const getAllReportsFiltered = async (req, res) => {
       ORDER BY value DESC
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // ================= TOP PRODUCTS =================
     const topProductsRaw = await sequelize.query(`
       SELECT 
         i.item_name,
@@ -398,7 +396,6 @@ export const getAllReportsFiltered = async (req, res) => {
         : 0,
     }));
 
-    // ================= FINAL RESPONSE =================
     res.json({
       success: true,
       data: {
