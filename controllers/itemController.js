@@ -282,7 +282,7 @@ export const updateItem = async (req, res) => {
 
 
 
-// 🔹 DELETE ITEM
+//  DELETE ITEM
 export const deleteItem = async (req, res) => {
   try {
     const { id } = req.params;

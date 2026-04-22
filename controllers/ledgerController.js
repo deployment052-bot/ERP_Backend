@@ -10,7 +10,7 @@ export const getLedger = async (req, res) => {
   try {
     const { store_code, page = 1, limit = 10, search } = req.query;
 
-    // 🔴 OPTIONAL AUTH: Works with or without middleware
+   
     const organization_id = req.user?.organization_id || 
                            req.user?.id || 
                            req.auth?.organization_id ||
@@ -21,7 +21,7 @@ export const getLedger = async (req, res) => {
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // 🔍 Customer filter
+    
     const customerWhere = { organization_id };
 
     if (store_code) customerWhere.store_code = store_code;
@@ -30,7 +30,7 @@ export const getLedger = async (req, res) => {
       customerWhere.name = { [Op.like]: `%${search}%` };
     }
 
-    // ================= COUNT =================
+   
     const countQuery = await Customer.findAll({
       where: customerWhere,
       include: [
@@ -48,7 +48,7 @@ export const getLedger = async (req, res) => {
 
     const totalCount = countQuery.length;
 
-    // ================= DATA =================
+    
     const data = await LedgerEntry.findAll({
       attributes: [
         "customer_id",
@@ -95,7 +95,7 @@ export const getLedger = async (req, res) => {
       order: [[sequelize.literal("last_transaction"), "DESC"]],
     });
 
-    // ================= FORMAT =================
+    
     const result = data.map((d) => {
       const debit = parseFloat(d.dataValues.total_debit || 0);
       const credit = parseFloat(d.dataValues.total_credit || 0);
@@ -139,7 +139,7 @@ export const getCustomerLedgerDetail = async (req, res) => {
   try {
     const customer_id = Number(req.params.customer_id);
     
-    // 🔴 OPTIONAL AUTH: Works with or without middleware
+    
     const organization_id = req.user?.organization_id || 
                            req.user?.id || 
                            req.auth?.organization_id ||
@@ -153,7 +153,7 @@ export const getCustomerLedgerDetail = async (req, res) => {
       });
     }
 
-    // 🔍 Customer check
+    //  Customer check
     const customer = await Customer.findOne({
       where: { id: customer_id, organization_id },
     });
@@ -165,7 +165,7 @@ export const getCustomerLedgerDetail = async (req, res) => {
       });
     }
 
-    // 🔍 Ledger entries
+    //  Ledger entries
     const entries = await LedgerEntry.findAll({
       where: { customer_id, organization_id },
       order: [["createdAt", "ASC"]],
@@ -196,7 +196,7 @@ export const getCustomerLedgerDetail = async (req, res) => {
 
     detailed.reverse();
 
-    // 🔍 Summary
+    //  Summary
     const totalDebit = entries
       .filter((e) => e.type === "DEBIT")
       .reduce((sum, e) => sum + parseFloat(e.amount), 0);

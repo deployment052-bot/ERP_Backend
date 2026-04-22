@@ -4,6 +4,10 @@ import { QueryTypes } from "sequelize";
 import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import ExcelJS from "exceljs";
+import jwt from "jsonwebtoken";
+import { Op } from "sequelize";
+import cloudinary from "../utils/cloudinary.js";
+
 
 /**
  *  STAFF DASHBOARD STATS
@@ -170,6 +174,31 @@ export const getStaffById = async (req, res) => {
 /**
  *  ADD EMPLOYEE
  */
+
+const generateUserCode = async () => {
+  const year = new Date().getFullYear();
+
+  const lastUser = await User.findOne({
+    where: {
+      userCode: {
+        [Op.like]: `USR/${year}/%`,
+      },
+    },
+    order: [["created_at", "DESC"]],
+  });
+
+  let nextNumber = 1;
+
+  if (lastUser) {
+    const lastPart = lastUser.userCode.split("/")[2];
+    const lastNumber = parseInt(lastPart) || 0;
+    nextNumber = lastNumber + 1;
+  }
+
+  return `USR/${year}/${String(nextNumber).padStart(3, "0")}`;
+};
+
+
 export const addEmployee = async (req, res) => {
   try {
     const {
@@ -180,20 +209,107 @@ export const addEmployee = async (req, res) => {
       storeCode,
       phoneNumber,
       storeName,
-      organizationLevel
+      organizationLevel,
+      isPoliceVerified,
     } = req.body;
 
-    if (!email || !username || !password || !storeCode) {
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!email || !username || !password || !role || !organizationLevel) {
+      return res.status(400).json({
+        error: "Missing required fields",
+      });
     }
 
-    const existing = await User.findOne({ where: { email } });
-    if (existing) {
-      return res.status(400).json({ error: "Email already exists" });
+    
+    const validLevels = ["HEAD", "DISTRICT", "STORE"];
+
+    if (!validLevels.includes(organizationLevel)) {
+      return res.status(400).json({
+        error: "Invalid organization level",
+      });
     }
 
+   
+    const allowedRoles = ["ADMIN", "INVENTORY_MANAGER", "SALES_MANAGER"];
+
+    if (!["SUPER_ADMIN", ...allowedRoles].includes(role)) {
+      return res.status(400).json({
+        error: "Invalid role",
+      });
+    }
+
+    if (role === "SUPER_ADMIN" && organizationLevel !== "HEAD") {
+      return res.status(400).json({
+        error: "Super Admin only allowed at HEAD",
+      });
+    }
+
+    
+    const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({
+        error: "Email already exists",
+      });
+    }
+
+    
+    if (phoneNumber) {
+      const existingPhone = await User.findOne({
+        where: { phoneNumber },
+      });
+
+      if (existingPhone) {
+        return res.status(400).json({
+          error: "Phone number already exists",
+        });
+      }
+    }
+
+ 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+   
+    const userCode = await generateUserCode();
+
+
+    let aadhaarUrl = null;
+    let panUrl = null;
+    let policeDocUrl = null;
+
+    if (isPoliceVerified === "true") {
+      if (!req.files?.aadhaar || !req.files?.pan || !req.files?.policeDoc) {
+        return res.status(400).json({
+          error: "All documents required",
+        });
+      }
+
+      const aadhaarRes = await cloudinary.uploader.upload(
+        req.files.aadhaar[0].path,
+        { resource_type: "auto" }
+      );
+
+      const panRes = await cloudinary.uploader.upload(
+        req.files.pan[0].path,
+        { resource_type: "auto" }
+      );
+
+      const policeRes = await cloudinary.uploader.upload(
+        req.files.policeDoc[0].path,
+        { resource_type: "auto" }
+      );
+
+      aadhaarUrl = aadhaarRes.secure_url;
+      panUrl = panRes.secure_url;
+      policeDocUrl = policeRes.secure_url;
+    }
+
+    
+    const token = jwt.sign(
+      { email, role, userCode },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    
     const user = await User.create({
       email,
       username,
@@ -203,17 +319,43 @@ export const addEmployee = async (req, res) => {
       phoneNumber,
       storeName,
       organizationLevel,
-      userCode: "USR-" + Date.now(),
-      isActive: true
+      userCode,
+      token, // ❗ if you don't want DB token → remove
+      isPoliceVerified: isPoliceVerified === "true",
+      aadhaarUrl,
+      panUrl,
+      policeDocUrl,
+      isActive: true,
     });
 
+  
     res.status(201).json({
       success: true,
-      data: user
+      message: "Employee added successfully",
+      data:{
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        storeCode: user.storeCode,
+        phoneNumber: user.phoneNumber,
+        storeName: user.storeName,
+        organizationLevel: user.organizationLevel,
+        userCode: user.userCode,
+        isPoliceVerified: user.isPoliceVerified,
+        aadhaarUrl: user.aadhaarUrl,
+        panUrl: user.panUrl,
+        policeDocUrl: user.policeDocUrl,
+        isActive: user.isActive,
+      },
+      token,
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.log("ADD EMPLOYEE ERROR:", err);
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 

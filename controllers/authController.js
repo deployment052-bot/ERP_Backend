@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
 import sequelize from "../config/db.js";
-
+import cloudinary from "../utils/cloudinary.js";
 // ================= REGISTER =================
 export const register = async (req, res) => {
   try {

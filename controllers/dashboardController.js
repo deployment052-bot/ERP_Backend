@@ -2,10 +2,23 @@ import sequelize from "../config/db.js";
 import { QueryTypes } from "sequelize";
 import axios from "axios";
 
+import redisClient from "../config/redis.js";
+
 export const getDashboardAdvanced = async (req, res) => {
   try {
+    const cacheKey = "dashboard:advanced";
 
-    // ===== STOCK STATUS (1 QUERY) =====
+    
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log(" Cache Hit: Dashboard Advanced");
+      return res.json(JSON.parse(cached));
+    }
+
+    console.log("Cache Miss: Dashboard Advanced");
+    
+
+    
     const [stockStatus] = await sequelize.query(`
       SELECT 
         COUNT(*) as total_stock,
@@ -14,17 +27,14 @@ export const getDashboardAdvanced = async (req, res) => {
       FROM items
     `, { type: QueryTypes.SELECT });
 
-    // ===== STOCK VALUE =====
     const [stockValue] = await sequelize.query(`
       SELECT COALESCE(SUM(total_amount),0) as total FROM invoice_items
     `, { type: QueryTypes.SELECT });
 
-    // ===== TRANSIT =====
     const [transitStock] = await sequelize.query(`
       SELECT COALESCE(SUM(transit_qty),0) as total FROM stocks
     `, { type: QueryTypes.SELECT });
 
-    // ===== METAL REVENUE (1 QUERY) =====
     const metalRevenue = await sequelize.query(`
       SELECT 
         i.metal_type,
@@ -40,7 +50,6 @@ export const getDashboardAdvanced = async (req, res) => {
       if (m.metal_type === 'Silver') silverRevenue = m.total;
     });
 
-    // ===== SALES + REVENUE (COMBINED) =====
     const trends = await sequelize.query(`
       SELECT 
         TO_CHAR(inv.invoice_date, 'Mon') as label,
@@ -52,7 +61,6 @@ export const getDashboardAdvanced = async (req, res) => {
       ORDER BY MIN(inv.invoice_date)
     `, { type: QueryTypes.SELECT });
 
-    // ===== RECENT =====
     const recentActivities = await sequelize.query(`
       SELECT 
         inv.invoice_number,
@@ -62,8 +70,7 @@ export const getDashboardAdvanced = async (req, res) => {
       LIMIT 5
     `, { type: QueryTypes.SELECT });
 
-    // ===== FINAL =====
-    res.json({
+    const response = {
       success: true,
       data: {
         cards: {
@@ -78,36 +85,42 @@ export const getDashboardAdvanced = async (req, res) => {
         trends,
         recentActivities
       }
-    });
+    };
+
+    
+    await redisClient.setEx(cacheKey, 60, JSON.stringify(response));
+
+    res.json(response);
 
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
 export const getDashboardCards = async (req, res) => {
   try {
+    const cacheKey = "dashboard:cards";
 
-    // =========================
-    // 1. TOTAL STOCK
-    // =========================
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log("⚡ Cache Hit: Cards");
+      return res.json(JSON.parse(cached));
+    }
+
+    console.log("🐢 Cache Miss: Cards");
+
+    // ===== YOUR ORIGINAL CODE =====
     const [totalStock] = await sequelize.query(`
       SELECT COUNT(*) as total FROM items
     `, { type: QueryTypes.SELECT });
 
-    // =========================
-    // 2. STOCK VALUE
-    // =========================
-const [stockValue] = await sequelize.query(`
-  SELECT 
-    COALESCE(SUM(s.available_qty * i.purchase_rate), 0) as total
-  FROM stocks s
-  JOIN items i ON i.id = s.item_id
-`, { type: QueryTypes.SELECT });
-    // =========================
-    // 3. DEAD STOCK (30 DAYS) ✅ FIXED
-    // =========================
+    const [stockValue] = await sequelize.query(`
+      SELECT 
+        COALESCE(SUM(s.available_qty * i.purchase_rate), 0) as total
+      FROM stocks s
+      JOIN items i ON i.id = s.item_id
+    `, { type: QueryTypes.SELECT });
+
     const [stockData] = await sequelize.query(`
       SELECT 
         COUNT(*) FILTER (
@@ -120,63 +133,28 @@ const [stockValue] = await sequelize.query(`
     const deadStockPercent = stockData.total_stock > 0
       ? ((stockData.dead_stock / stockData.total_stock) * 100).toFixed(2)
       : 0;
-     // 2.5 TRANSIT STOCK ✅ NEW
-// =========================
-const [transitStock] = await sequelize.query(`
-  SELECT COALESCE(SUM(transit_qty), 0) as total 
-  FROM stocks
-`, { type: QueryTypes.SELECT });
-    // =========================
-    // 4. GOLD & SILVER PRICE
-    // =========================
-    const getMetalPrice = async (metal) => {
-      const today = await axios.get(`https://www.goldapi.io/api/${metal}/INR`, {
-        headers: { "x-access-token": process.env.GOLD_API_KEY }
-      });
 
-      const yesterday = await axios.get(`https://www.goldapi.io/api/${metal}/INR?date=yesterday`, {
-        headers: { "x-access-token": process.env.GOLD_API_KEY }
-      });
+    const [transitStock] = await sequelize.query(`
+      SELECT COALESCE(SUM(transit_qty), 0) as total 
+      FROM stocks
+    `, { type: QueryTypes.SELECT });
 
-      const todayPrice = today.data.price;
-      const yesterdayPrice = yesterday.data.price;
-
-      const percent = (((todayPrice - yesterdayPrice) / yesterdayPrice) * 100).toFixed(2);
-
-      return {
-        price: todayPrice,
-        percentage: percent
-      };
-    };
-
-    const gold = await getMetalPrice("XAU");
-    const silver = await getMetalPrice("XAG");
-
-    // =========================
-    // FINAL RESPONSE
-    // =========================
-    res.json({
+    const response = {
       success: true,
       data: {
         totalStock: Number(totalStock.total),
         stockValue: Number(stockValue.total),
-         
         deadStock: {
           count: Number(stockData.dead_stock),
           percentage: deadStockPercent + "%"
         },
-        transitStock: Number(transitStock.total),
-        gold: {
-          price: gold.price,
-          percentage: gold.percentage + "%"
-        },
-
-        silver: {
-          price: silver.price,
-          percentage: silver.percentage + "%"
-        }
+        transitStock: Number(transitStock.total)
       }
-    });
+    };
+
+    await redisClient.setEx(cacheKey, 60, JSON.stringify(response));
+
+    res.json(response);
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -190,9 +168,7 @@ export const getSalesPurchaseTrend = async (req, res) => {
     let salesDateField = "inv.invoice_date";
     let purchaseDateField = "i.created_at";
 
-    // =========================
-    // FILTER LOGIC
-    // =========================
+   
     if (filter === "daily") {
       dateFormat = "YYYY-MM-DD";
     } else if (filter === "weekly") {
@@ -201,9 +177,7 @@ export const getSalesPurchaseTrend = async (req, res) => {
       dateFormat = "Mon"; // Monthly
     }
 
-    // =========================
-    // SALES (Invoices)
-    // =========================
+    
     const sales = await sequelize.query(`
       SELECT 
         TO_CHAR(${salesDateField}, '${dateFormat}') as label,
@@ -213,9 +187,6 @@ export const getSalesPurchaseTrend = async (req, res) => {
       ORDER BY MIN(${salesDateField})
     `, { type: QueryTypes.SELECT });
 
-    // =========================
-    // PURCHASE (Items created)
-    // =========================
     const purchase = await sequelize.query(`
       SELECT 
         TO_CHAR(${purchaseDateField}, '${dateFormat}') as label,
@@ -225,9 +196,6 @@ export const getSalesPurchaseTrend = async (req, res) => {
       ORDER BY MIN(${purchaseDateField})
     `, { type: QueryTypes.SELECT });
 
-    // =========================
-    // MERGE DATA
-    // =========================
     const map = {};
 
     sales.forEach(s => {
@@ -252,9 +220,7 @@ export const getSalesPurchaseTrend = async (req, res) => {
 
     const finalData = Object.values(map);
 
-    // =========================
-    // RESPONSE
-    // =========================
+   
     res.json({
       success: true,
       data: finalData
@@ -267,9 +233,7 @@ export const getSalesPurchaseTrend = async (req, res) => {
 export const getProfitLoss = async (req, res) => {
   try {
 
-    // =========================
-    // SALES (Invoices)
-    // =========================
+   
     const salesData = await sequelize.query(`
       SELECT 
         TO_CHAR(invoice_date, 'YYYY-MM') as label,
@@ -293,9 +257,7 @@ export const getProfitLoss = async (req, res) => {
       ORDER BY label
     `, { type: QueryTypes.SELECT });
 
-    // =========================
-    // MERGE + CALCULATE
-    // =========================
+
     const map = {};
 
     // Sales insert
@@ -307,7 +269,7 @@ export const getProfitLoss = async (req, res) => {
       };
     });
 
-    // Purchase adjust
+    
     purchaseData.forEach(p => {
       if (!map[p.label]) {
         map[p.label] = {
@@ -328,9 +290,7 @@ export const getProfitLoss = async (req, res) => {
       }
     });
 
-    // =========================
-    // FINAL RESPONSE
-    // =========================
+   
     res.json({
       success: true,
       data: Object.values(map)
@@ -354,7 +314,7 @@ export const getRevenueTrend = async (req, res) => {
       ORDER BY MIN(invoice_date)
     `, { type: QueryTypes.SELECT });
 
-    // Convert to number (important)
+   
     const formattedData = data.map(d => ({
       label: d.label,
       revenue: Number(d.revenue)
@@ -377,7 +337,7 @@ export const getRecentActivities = async (req, res) => {
       SELECT 
         'Sales Transaction' as title,
         CONCAT('Sale completed - ₹', total_amount) as description,
-        "createdAt" as time   -- ✅ FIX
+        "createdAt" as time  
       FROM invoices
       ORDER BY "createdAt" DESC
       LIMIT 3
@@ -388,30 +348,30 @@ export const getRecentActivities = async (req, res) => {
       SELECT 
         'Stock Updated' as title,
         'Inventory updated' as description,
-        updated_at as time   -- ✅ FIX
+        updated_at as time   
       FROM stocks
       ORDER BY updated_at DESC
       LIMIT 2
     `, { type: QueryTypes.SELECT });
 
-    // TRANSIT (CHECK YOUR TABLE NAME)
+   
     const transit = await sequelize.query(`
       SELECT 
         'Transit Item' as title,
         'Items moved between stores' as description,
-        created_at as time   -- ✅ only if exists
+        created_at as time   
       FROM stock_transfer
       ORDER BY created_at DESC
       LIMIT 2
     `, { type: QueryTypes.SELECT });
 
-    // MERGE
+   
     const activities = [...sales, ...stockUpdates, ...transit];
 
-    // SORT
+   
     activities.sort((a, b) => new Date(b.time) - new Date(a.time));
 
-    // LIMIT 5
+   
     const finalData = activities.slice(0, 5);
 
     res.json({

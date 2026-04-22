@@ -1,6 +1,6 @@
 import multer from "multer";
 
-// ✅ storage config
+//  storage config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -10,7 +10,7 @@ const storage = multer.diskStorage({
   },
 });
 
-// ✅ file filter (optional but recommended)
+//  file filter (optional but recommended)
 const fileFilter = (req, file, cb) => {
   if (file.mimetype === "application/pdf") {
     cb(null, true);
@@ -19,7 +19,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// ✅ upload middleware
+// upload middleware
 export const upload = multer({
   storage,
   fileFilter,

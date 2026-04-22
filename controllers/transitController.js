@@ -12,9 +12,7 @@ import {
   TrackingLog,
 } from "../models/index.js";
 
-// ==========================================
-// 🔥 HELPER
-// ==========================================
+
 const getStoreIdFromHeader = async (req) => {
   const store = await Store.findOne({
     where: { store_code: req.headers.store_code },
@@ -59,9 +57,7 @@ export const getTransitDashboard = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 2. ACTIVE SHIPMENTS
-// ==========================================
+
 export const getActiveShipments = async (req, res) => {
   try {
     const storeId = await getStoreIdFromHeader(req);
@@ -126,9 +122,7 @@ export const getActiveShipments = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 3. SHIPMENT DETAILS + TRACKING
-// ==========================================
+
 export const getShipmentDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -160,7 +154,7 @@ export const getShipmentDetails = async (req, res) => {
       return res.status(404).json({ error: "Transfer not found" });
     }
 
-    // 🔥 Group items
+   
     const groupedItems = Object.values(
       transfer.items.reduce((acc, item) => {
         const id = item.item_id;
@@ -182,7 +176,7 @@ export const getShipmentDetails = async (req, res) => {
       }, {})
     );
 
-    // 🔥 Summary
+   
     const summary = {
       total_items: groupedItems.length,
       total_qty: groupedItems.reduce((s, i) => s + i.qty, 0),
@@ -203,9 +197,7 @@ export const getShipmentDetails = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 4. MARK DELIVERED
-// ==========================================
+
 export const markDelivered = async (req, res) => {
   try {
     const { id } = req.params;
@@ -252,7 +244,7 @@ export const markDelivered = async (req, res) => {
       }
     });
 
-    // 🔥 outside transaction
+    
     try {
       global.io.emit("delivery-updated", {
         transferId: id,
@@ -269,9 +261,7 @@ export const markDelivered = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 5. SEND LOCATION
-// ==========================================
+
 export const sendLocation = async (req, res) => {
   try {
     const { transferId, lat, lng } = req.body;
@@ -296,9 +286,7 @@ export const sendLocation = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 6. TRACKING HISTORY
-// ==========================================
+
 export const getTrackingHistory = async (req, res) => {
   try {
     const { id } = req.params;
@@ -314,9 +302,7 @@ export const getTrackingHistory = async (req, res) => {
   }
 };
 
-// ==========================================
-// 🔥 7. GOOGLE MAP ROUTE
-// ==========================================
+
 export const getRoute = async (req, res) => {
   try {
     const { origin, destination } = req.query;
