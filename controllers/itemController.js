@@ -66,7 +66,7 @@ export const addItem = async (req, res) => {
       hsn_code,
       unit,
 
-      added_from_level: role.toLowerCase(), // CAPITAL → central
+      added_from_level: role.toLowerCase(), 
       reference_id: reference_id,
     });
 

@@ -39,7 +39,7 @@ export const getStoresByDistrict = async (req, res) => {
   }
 };
 
-// Get Stocks with Item (JOIN 🔥)
+// Get Stocks with Item 
 export const getStocksByStore = async (req, res) => {
   try {
     const { storeId } = req.params;

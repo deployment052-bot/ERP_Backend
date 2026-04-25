@@ -31,7 +31,11 @@ const  Invoice = sequelize.define("Invoice", {
     type: DataTypes.BIGINT,
     allowNull: false,
     field: "organization_id"
-  }
+  },
+  is_exchanged: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: false
+}
 
 }, {
   tableName: "invoices",

@@ -8,7 +8,7 @@ import {
   deleteEmployee,
   toggleEmployeeStatus,
     exportStaffExcel
-} from "../controllers/staffController.js";
+} from "../controllers/headController/staffController.js";
 
 const router = express.Router();
 

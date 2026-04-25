@@ -5,11 +5,26 @@ const InvoiceItem = sequelize.define(
   "InvoiceItem",
   {
     invoice_id: DataTypes.INTEGER,
+    
+    item_id: {   
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+
+    quantity: {  
+      type: DataTypes.INTEGER,
+      defaultValue: 1
+    },
+    stone_weight: {
+  type: DataTypes.DECIMAL(10,3),
+  defaultValue: 0
+},
+
     product_code: DataTypes.STRING,
     description: DataTypes.STRING,
     hsn_code: DataTypes.STRING,
-    purity: DataTypes.STRING,  // 18KT, 22KT, etc.
-    gross_weight: DataTypes.DECIMAL(10, 3),  
+    purity: DataTypes.STRING,
+    gross_weight: DataTypes.DECIMAL(10, 3),
     less_weight: DataTypes.DECIMAL(10, 3),
     net_weight: DataTypes.DECIMAL(10, 3),
     rate: DataTypes.DECIMAL(12, 2),
@@ -23,5 +38,4 @@ const InvoiceItem = sequelize.define(
     timestamps: true,
   }
 );
-
 export default InvoiceItem;

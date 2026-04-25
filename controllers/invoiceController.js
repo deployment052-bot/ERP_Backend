@@ -44,6 +44,8 @@ export const createInvoice = async (req, res) => {
       grandTotal += totalAmount;
 
       itemData.push({
+         item_id: i.item_id,          
+        quantity: i.quantity || 1,
         product_code: i.product_code,
         description: i.description,
         hsn_code: i.hsn_code,

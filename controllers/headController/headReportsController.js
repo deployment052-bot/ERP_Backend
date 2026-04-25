@@ -2,7 +2,11 @@ import sequelize from "../config/db.js";
 import { QueryTypes } from "sequelize";
 import redis from "../config/redis.js";
 
-
+/**
+ * ==========================================
+ * 1. DASHBOARD ANALYTICS
+ * ==========================================
+ */
 export const getDashboardAnalytics = async (req, res) => {
   try {
     const cacheKey = "dashboard:analytics";
@@ -15,14 +19,14 @@ export const getDashboardAnalytics = async (req, res) => {
 
     console.log("🐢 Cache Miss: Dashboard Analytics");
 
+    // TOTAL REVENUE
     const revenueResult = await sequelize.query(`
       SELECT COALESCE(SUM(total_amount), 0) AS total_revenue
       FROM invoices
       WHERE status IN ('PAID', 'PARTIAL')
     `, { type: QueryTypes.SELECT });
 
-    const totalRevenue = parseFloat(revenueResult[0].total_revenue);
-
+    // TOTAL PROFIT
     const profitResult = await sequelize.query(`
       SELECT COALESCE(
         SUM(
@@ -34,24 +38,21 @@ export const getDashboardAnalytics = async (req, res) => {
         ), 0
       ) AS total_profit
       FROM invoice_items ii
-      JOIN items i 
-        ON TRIM(LOWER(i.article_code)) = TRIM(LOWER(ii.product_code)) 
-        OR TRIM(LOWER(i.sku_code)) = TRIM(LOWER(ii.product_code))
-      JOIN invoices inv 
-        ON inv.id = ii.invoice_id
+      JOIN items i ON i.id = ii.item_id
+      JOIN invoices inv ON inv.id = ii.invoice_id
       WHERE inv.status IN ('PAID', 'PARTIAL')
     `, { type: QueryTypes.SELECT });
 
+    // INVENTORY COUNT
     const inventoryResult = await sequelize.query(`
-      SELECT COUNT(*) AS total_inventory
-      FROM items
+      SELECT COUNT(*) AS total_inventory FROM items
     `, { type: QueryTypes.SELECT });
 
+    // AVG MONTHLY SALES
     const avgSalesResult = await sequelize.query(`
       SELECT COALESCE(AVG(monthly_sales), 0) AS avg_sales FROM (
-        SELECT 
-          DATE_TRUNC('month', invoice_date) AS month,
-          SUM(total_amount) AS monthly_sales
+        SELECT DATE_TRUNC('month', invoice_date) AS month,
+               SUM(total_amount) AS monthly_sales
         FROM invoices
         WHERE status IN ('PAID', 'PARTIAL')
         GROUP BY month
@@ -59,13 +60,13 @@ export const getDashboardAnalytics = async (req, res) => {
     `, { type: QueryTypes.SELECT });
 
     const data = {
-      totalRevenue,
-      totalProfit: parseFloat(profitResult[0].total_profit),
-      totalInventory: parseInt(inventoryResult[0].total_inventory),
-      avgMonthlySales: parseFloat(avgSalesResult[0].avg_sales)
+      totalRevenue: Number(revenueResult[0].total_revenue),
+      totalProfit: Number(profitResult[0].total_profit),
+      totalInventory: Number(inventoryResult[0].total_inventory),
+      avgMonthlySales: Number(avgSalesResult[0].avg_sales)
     };
 
-    await redis.set(cacheKey, JSON.stringify({ success: true, data }), "EX", 300);
+    await redis.set(cacheKey, JSON.stringify({ success: true, data }), "EX", 60);
 
     res.json({ success: true, data });
 
@@ -76,6 +77,11 @@ export const getDashboardAnalytics = async (req, res) => {
 };
 
 
+/**
+ * ==========================================
+ * 2. MONTHLY SALES & PROFIT
+ * ==========================================
+ */
 export const getMonthlySalesProfit = async (req, res) => {
   try {
     const cacheKey = "dashboard:monthly";
@@ -102,9 +108,7 @@ export const getMonthlySalesProfit = async (req, res) => {
         ) AS profit
       FROM invoices inv
       JOIN invoice_items ii ON inv.id = ii.invoice_id
-      JOIN items i 
-        ON TRIM(LOWER(i.article_code)) = TRIM(LOWER(ii.product_code)) 
-        OR TRIM(LOWER(i.sku_code)) = TRIM(LOWER(ii.product_code))
+      JOIN items i ON i.id = ii.item_id
       WHERE inv.status IN ('PAID', 'PARTIAL')
       GROUP BY month, full_date
       ORDER BY full_date ASC
@@ -112,11 +116,11 @@ export const getMonthlySalesProfit = async (req, res) => {
 
     const formatted = data.map(item => ({
       label: item.month,
-      sales: parseFloat(item.sales),
-      profit: parseFloat(item.profit)
+      sales: Number(item.sales),
+      profit: Number(item.profit)
     }));
 
-    await redis.set(cacheKey, JSON.stringify({ success: true, data: formatted }), "EX", 300);
+    await redis.set(cacheKey, JSON.stringify({ success: true, data: formatted }), "EX", 60);
 
     res.json({ success: true, data: formatted });
 
@@ -127,43 +131,45 @@ export const getMonthlySalesProfit = async (req, res) => {
 };
 
 
+/**
+ * ==========================================
+ * 3. CATEGORY WISE SALES (FIXED 🔥)
+ * ==========================================
+ */
 export const getCategoryWiseSales = async (req, res) => {
   try {
     const cacheKey = "dashboard:category_sales";
 
     const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log("⚡ Cache Hit: Category Sales");
+      console.log(" Cache Hit: Category Sales");
       return res.json(JSON.parse(cached));
     }
 
-    console.log("🐢 Cache Miss: Category Sales");
+    console.log(" Cache Miss: Category Sales");
 
     const data = await sequelize.query(`
+      WITH category_data AS (
+        SELECT 
+          LOWER(TRIM(i.category)) AS category,
+          SUM(ii.total_amount) AS total_sales
+        FROM invoice_items ii
+        JOIN items i ON i.id = ii.item_id
+        JOIN invoices inv ON inv.id = ii.invoice_id
+        WHERE inv.status IN ('PAID', 'PARTIAL')
+        GROUP BY LOWER(TRIM(i.category))
+      )
       SELECT 
-        i.category,
-        SUM(ii.total_amount) AS total_sales
-      FROM invoice_items ii
-      JOIN items i 
-        ON TRIM(LOWER(i.article_code)) = TRIM(LOWER(ii.product_code)) 
-        OR TRIM(LOWER(i.sku_code)) = TRIM(LOWER(ii.product_code))
-      JOIN invoices inv ON inv.id = ii.invoice_id
-      WHERE inv.status IN ('PAID', 'PARTIAL')
-      GROUP BY i.category
+        category,
+        total_sales AS value,
+        ROUND((total_sales * 100.0 / SUM(total_sales) OVER()), 0) AS percentage
+      FROM category_data
       ORDER BY total_sales DESC
     `, { type: QueryTypes.SELECT });
 
-    const total = data.reduce((sum, item) => sum + parseFloat(item.total_sales), 0);
+    await redis.set(cacheKey, JSON.stringify({ success: true, data }), "EX", 60);
 
-    const formatted = data.map(item => ({
-      category: item.category,
-      value: parseFloat(item.total_sales),
-      percentage: total ? ((item.total_sales / total) * 100).toFixed(0) : 0
-    }));
-
-    await redis.set(cacheKey, JSON.stringify({ success: true, data: formatted }), "EX", 300);
-
-    res.json({ success: true, data: formatted });
+    res.json({ success: true, data });
 
   } catch (error) {
     console.error("Category Sales Error:", error);
@@ -172,6 +178,11 @@ export const getCategoryWiseSales = async (req, res) => {
 };
 
 
+/**
+ * ==========================================
+ * 4. METAL DISTRIBUTION
+ * ==========================================
+ */
 export const getMetalDistribution = async (req, res) => {
   try {
     const cacheKey = "dashboard:metal_distribution";
@@ -189,9 +200,7 @@ export const getMetalDistribution = async (req, res) => {
         CONCAT(i.metal_type, ' ', i.purity) AS label,
         SUM(ii.total_amount) AS revenue
       FROM invoice_items ii
-      JOIN items i 
-        ON TRIM(LOWER(i.article_code)) = TRIM(LOWER(ii.product_code)) 
-        OR TRIM(LOWER(i.sku_code)) = TRIM(LOWER(ii.product_code))
+      JOIN items i ON i.id = ii.item_id
       JOIN invoices inv ON inv.id = ii.invoice_id
       WHERE inv.status IN ('PAID', 'PARTIAL')
       GROUP BY i.metal_type, i.purity
@@ -200,7 +209,7 @@ export const getMetalDistribution = async (req, res) => {
 
     const formatted = data.map(item => ({
       label: item.label,
-      value: parseFloat(item.revenue)
+      value: Number(item.revenue)
     }));
 
     await redis.set(cacheKey, JSON.stringify({ success: true, data: formatted }), "EX", 300);
@@ -214,17 +223,22 @@ export const getMetalDistribution = async (req, res) => {
 };
 
 
+/**
+ * ==========================================
+ * 5. TOP PRODUCTS
+ * ==========================================
+ */
 export const getTopProducts = async (req, res) => {
   try {
-    const cacheKey = "dashboard:top_products";
+    const cacheKey = "dashboard:top_products_units";
 
     const cached = await redis.get(cacheKey);
     if (cached) {
-      console.log("⚡ Cache Hit: Top Products");
+      console.log("⚡ Cache Hit: Top Products (Units)");
       return res.json(JSON.parse(cached));
     }
 
-    console.log("🐢 Cache Miss: Top Products");
+    console.log("🐢 Cache Miss: Top Products (Units)");
 
     const data = await sequelize.query(`
       SELECT 
@@ -237,11 +251,12 @@ export const getTopProducts = async (req, res) => {
       JOIN invoices inv ON ii.invoice_id = inv.id
       WHERE inv.status IN ('PAID', 'PARTIAL')
       GROUP BY i.id, i.item_name, i.category
-      ORDER BY total_revenue DESC
+      ORDER BY units_sold DESC, total_revenue DESC   -- 🔥 KEY CHANGE
       LIMIT 5
     `, { type: QueryTypes.SELECT });
 
-    const maxRevenue = data.length > 0 ? Number(data[0].total_revenue) : 0;
+    // 🔥 Performance now based on units (not revenue)
+    const maxUnits = data.length ? Number(data[0].units_sold) : 0;
 
     const finalData = data.map((item, index) => ({
       rank: index + 1,
@@ -249,51 +264,74 @@ export const getTopProducts = async (req, res) => {
       category: item.category,
       units_sold: Number(item.units_sold),
       total_revenue: Number(item.total_revenue),
-      performance: maxRevenue
-        ? Math.round((item.total_revenue / maxRevenue) * 100)
+      performance: maxUnits
+        ? Math.round((item.units_sold / maxUnits) * 100)
         : 0,
     }));
 
-    await redis.set(cacheKey, JSON.stringify({ success: true, data: finalData }), "EX", 300);
+    await redis.set(
+      cacheKey,
+      JSON.stringify({ success: true, data: finalData }),
+      "EX",
+      30   // 30 seconds cache
+    );
 
     res.json({ success: true, data: finalData });
 
   } catch (error) {
+    console.error("Top Products Error:", error);
     res.status(500).json({ error: error.message });
   }
 };
 
 
+/**
+ * ==========================================
+ * 6. DAILY SALES TREND
+ * ==========================================
+ */
 export const getDailySalesTrend = async (req, res) => {
   try {
     const cacheKey = "dashboard:daily_trend";
 
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      console.log(" Cache Hit: Daily Trend");
-      return res.json(JSON.parse(cached));
-    }
+    // const cached = await redis.get(cacheKey);
+    // if (cached) {
+    //   console.log("⚡ Cache Hit: Daily Trend");
+    //   return res.json(JSON.parse(cached));
+    // }
 
-    console.log(" Cache Miss: Daily Trend");
+    // console.log("🐢 Cache Miss: Daily Trend");
 
     const data = await sequelize.query(`
+      WITH dates AS (
+        SELECT generate_series(
+          CURRENT_DATE - INTERVAL '29 days',
+          CURRENT_DATE,
+          INTERVAL '1 day'
+        )::date AS date
+      )
       SELECT 
-        DATE(invoice_date) AS date,
-        SUM(total_amount) AS sales
-      FROM invoices
-      WHERE 
-        status IN ('PAID', 'PARTIAL')
-        AND invoice_date >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY DATE(invoice_date)
-      ORDER BY DATE(invoice_date) ASC
+        d.date,
+        COALESCE(SUM(inv.total_amount), 0) AS sales
+      FROM dates d
+      LEFT JOIN invoices inv
+        ON DATE(inv.invoice_date) = d.date
+        AND inv.status IN ('PAID', 'PARTIAL')
+      GROUP BY d.date
+      ORDER BY d.date ASC
     `, { type: QueryTypes.SELECT });
 
     const formatted = data.map(item => ({
-      label: item.date,
-      sales: parseFloat(item.sales)
+      label: item.date,   // date 그대로 (frontend format kare)
+      sales: Number(item.sales)
     }));
 
-    await redis.set(cacheKey, JSON.stringify({ success: true, data: formatted }), "EX", 300);
+    await redis.set(
+      cacheKey,
+      JSON.stringify({ success: true, data: formatted }),
+      "EX",
+      60   // 🔥 1 min cache (dynamic data)
+    );
 
     res.json({ success: true, data: formatted });
 

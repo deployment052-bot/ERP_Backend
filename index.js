@@ -24,6 +24,10 @@ import headOfficeStockRoutes from "./routes/headOfficeStockRoutes.js";
 import transitRoutes from "./routes/transitRoutes.js";
 import headInventoryRoutes from "./routes/headInventoryRoutes.js";
 import ocrRoutes from "./routes/ocrRoutes.js";
+import "./listeners/dashboardListener.js";
+import exchangeRoutes from "./routes/exchangeRoutes.js";
+
+
 dotenv.config();
 
 const app = express();
@@ -53,6 +57,7 @@ app.use("/api/head-office-stock", headOfficeStockRoutes);
 app.use("/api/transit", transitRoutes);
 app.use("/api/head-inventory", headInventoryRoutes);
 app.use("/api/ocr", ocrRoutes);
+app.use("/api/exchange", exchangeRoutes)
 const startServer = async () => {
   try {
     await sequelize.authenticate();

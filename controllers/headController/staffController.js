@@ -1,12 +1,12 @@
 
-import sequelize from "../config/db.js";
+import sequelize from "../../config/db.js";
 import { QueryTypes } from "sequelize";
-import User from "../models/User.js";
+import User from "../../models/User.js";
 import bcrypt from "bcrypt";
 import ExcelJS from "exceljs";
 import jwt from "jsonwebtoken";
 import { Op } from "sequelize";
-import cloudinary from "../utils/cloudinary.js";
+import cloudinary from "../../utils/cloudinary.js";
 
 
 /**

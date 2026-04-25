@@ -2,7 +2,7 @@ import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
 
 const StockRequestItem = sequelize.define(
-  "StockRequestItem", // ✅ IMPORTANT (name change)
+  "StockRequestItem", 
   {
     id: {
       type: DataTypes.INTEGER,
